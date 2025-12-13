@@ -83,7 +83,8 @@ async def _resource_doc_to_model(resource: Resource) -> ResourceModel:
         "title": resource.title,
         "description": resource.description,
         "user": user_response,
-        "tags": tags
+        "tags": tags,
+        "created_at": resource.created_at
     }
     
     if resource.type == "article":

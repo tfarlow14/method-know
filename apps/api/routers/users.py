@@ -89,6 +89,16 @@ async def list_users(current_user: User = Depends(get_current_user)):
     ]
     return UserCollection(users=user_responses)
 
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current authenticated user's information"""
+    return UserResponse(
+        id=str(current_user.id),
+        first_name=current_user.first_name,
+        last_name=current_user.last_name,
+        email=current_user.email
+    )
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str):
     user = await User.get(user_id)

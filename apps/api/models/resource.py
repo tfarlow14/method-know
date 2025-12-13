@@ -1,4 +1,5 @@
 from typing import Optional, Union, Annotated, Literal, TYPE_CHECKING
+from datetime import datetime
 from pydantic import BaseModel, Field, BeforeValidator
 from beanie import Document, Link
 
@@ -15,6 +16,7 @@ class ResourceBase(BaseModel):
     description: str
     user: "UserResponse"
     tags: list["TagModel"] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
     
     model_config = {
         "populate_by_name": True,
@@ -80,6 +82,7 @@ class Resource(Document):
     tags: list[Link["Tag"]] = Field(default_factory=list)
     url: Optional[str] = None
     code: Optional[str] = None
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     
     class Settings:
         name = "resources"
