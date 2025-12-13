@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+motor
+beanie
+email-validator
+passlib[bcrypt]
+PyJWT

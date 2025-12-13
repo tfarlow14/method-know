@@ -1,0 +1,10 @@
+{
+	"name": "api",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"install": "pip install -r requirements.txt",
+		"dev": "bash dev.sh"
+	}
+}
+
