@@ -13,10 +13,10 @@ async def create_tag(
     """Create a new tag (requires authentication)"""
     new_tag = Tag(name=tag.name)
     await new_tag.insert()
-    return TagModel(name=new_tag.name)
+    return TagModel(id=str(new_tag.id), name=new_tag.name)
 
 @router.get("", response_model=TagCollection)
 async def list_tags():
     """List all tags (public endpoint)"""
     tags = await Tag.find_all().to_list()
-    return TagCollection(tags=[TagModel(name=tag.name) for tag in tags])
+    return TagCollection(tags=[TagModel(id=str(tag.id), name=tag.name) for tag in tags])

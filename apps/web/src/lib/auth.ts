@@ -3,6 +3,9 @@
  * 
  * Note: For production, consider using HttpOnly cookies instead of localStorage
  * for better security against XSS attacks.
+ * 
+ * User information is stored in Svelte stores (see stores.ts), not localStorage.
+ * Only the authentication token is stored in localStorage.
  */
 
 const AUTH_TOKEN_KEY = 'authToken';
@@ -18,7 +21,7 @@ export function isAuthenticated(): boolean {
 }
 
 /**
- * Store authentication token
+ * Store authentication token (user info should be stored in Svelte store)
  */
 export function setAuthToken(token: string): void {
 	if (typeof window !== 'undefined') {
@@ -41,6 +44,7 @@ export function getAuthToken(): string | null {
 
 /**
  * Remove authentication token (logout)
+ * Note: User store should also be cleared when calling this
  */
 export function clearAuthToken(): void {
 	if (typeof window !== 'undefined') {

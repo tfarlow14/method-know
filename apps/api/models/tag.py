@@ -7,7 +7,13 @@ PyObjectId = Annotated[str, BeforeValidator(str)]
 
 class TagModel(BaseModel):
     """Pydantic model for tag creation/updates"""
+    id: Optional[PyObjectId] = Field(default=None)
     name: str
+    
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+    }
 
 class Tag(Document):
     """Beanie Document for Tag in database"""

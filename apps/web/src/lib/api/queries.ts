@@ -52,12 +52,22 @@ export const resourceQueries = {
 		})
 };
 
+// Tag types
+export interface TagResponse {
+	id?: string;
+	name: string;
+}
+
+export interface TagCollection {
+	tags: TagResponse[];
+}
+
 // Example: Tag queries
 export const tagQueries = {
 	all: () =>
 		queryOptions({
 			queryKey: queryKeys.tags.lists(),
-			queryFn: () => apiGet('/tags')
+			queryFn: () => apiGet<TagCollection>('/tags')
 		})
 };
 
@@ -96,8 +106,8 @@ export interface ResourceBase {
 	id?: string;
 	title: string;
 	description: string;
-	user_id: string;
-	tag_ids: string[];
+	user: UserResponse; // Required: populated user information from backend
+	tags: TagResponse[]; // Optional: 0 to many tags (empty array if none)
 }
 
 export interface ArticleResource extends ResourceBase {
@@ -110,11 +120,15 @@ export interface CodeSnippetResource extends ResourceBase {
 	code: string;
 }
 
-export interface LearningResource extends ResourceBase {
-	type: 'learning_resource';
+export interface BookResource extends ResourceBase {
+	type: 'book';
 }
 
-export type Resource = ArticleResource | CodeSnippetResource | LearningResource;
+export interface CourseResource extends ResourceBase {
+	type: 'course';
+}
+
+export type Resource = ArticleResource | CodeSnippetResource | BookResource | CourseResource;
 
 export interface ResourceCollection {
 	resources: Resource[];

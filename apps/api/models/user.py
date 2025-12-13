@@ -25,7 +25,7 @@ class User(Document):
 
 class UserResponse(BaseModel):
     """User model without password for responses"""
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    id: Optional[PyObjectId] = Field(default=None)
     first_name: str
     last_name: str
     email: EmailStr

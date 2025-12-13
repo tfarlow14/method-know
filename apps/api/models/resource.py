@@ -1,18 +1,34 @@
-from typing import Optional, Union, Annotated, Literal
+from typing import Optional, Union, Annotated, Literal, TYPE_CHECKING
 from pydantic import BaseModel, Field, BeforeValidator
-from beanie import Document
+from beanie import Document, Link
 
 # Helper for MongoDB ObjectId
 PyObjectId = Annotated[str, BeforeValidator(str)]
 
+if TYPE_CHECKING:
+    from models.user import UserResponse
+    from models.tag import TagModel
+
 # Pydantic models for request/response validation
 class ResourceBase(BaseModel):
-    """Base Pydantic model for resource validation"""
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    """Base Pydantic model for resource validation (response)"""
+    id: Optional[PyObjectId] = Field(default=None)
     title: str
     description: str
-    user_id: Optional[PyObjectId] = None  # Foreign key to users collection
-    tag_ids: list[PyObjectId] = []
+    user: "UserResponse"  # Required: populated user information for responses
+    tags: list["TagModel"] = Field(default_factory=list)  # Optional: 0 to many tags
+    
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+    }
+
+# Input models for creating resources (accept tag_ids instead of tags)
+class ResourceBaseInput(BaseModel):
+    """Base Pydantic model for resource creation (request)"""
+    title: str
+    description: str
+    tag_ids: list[PyObjectId] = Field(default_factory=list)  # Optional: 0 to many tag IDs
     
     model_config = {
         "populate_by_name": True,
@@ -42,9 +58,30 @@ class BookResource(LearningResourceBase):
 class CourseResource(LearningResourceBase):
     type: Literal["course"] = "course"
 
-# Discriminated Union for polymorphism (for API validation)
+# Input models for creating resources
+class ArticleResourceInput(ResourceBaseInput):
+    type: Literal["article"] = "article"
+    url: str
+
+class CodeSnippetResourceInput(ResourceBaseInput):
+    type: Literal["code_snippet"] = "code_snippet"
+    code: str
+
+class BookResourceInput(ResourceBaseInput):
+    type: Literal["book"] = "book"
+
+class CourseResourceInput(ResourceBaseInput):
+    type: Literal["course"] = "course"
+
+# Discriminated Union for polymorphism (for API validation - response)
 ResourceModel = Annotated[
     Union[ArticleResource, CodeSnippetResource, BookResource, CourseResource],
+    Field(discriminator="type")
+]
+
+# Discriminated Union for input (accepts tag_ids)
+ResourceModelInput = Annotated[
+    Union[ArticleResourceInput, CodeSnippetResourceInput, BookResourceInput, CourseResourceInput],
     Field(discriminator="type")
 ]
 
@@ -54,8 +91,8 @@ class Resource(Document):
     title: str
     description: str
     type: str  # "article", "code_snippet", "book", "course"
-    user_id: Optional[str] = None
-    tag_ids: list[str] = []
+    user: Link["User"]  # Required: Link to User document
+    tags: list[Link["Tag"]] = Field(default_factory=list)  # Optional: 0 to many Links to Tag documents
     
     # Optional fields for specific resource types
     url: Optional[str] = None  # For article resources
@@ -63,7 +100,31 @@ class Resource(Document):
     
     class Settings:
         name = "resources"
-        indexes = ["user_id", "type"]
+        indexes = ["type"]
 
 class ResourceCollection(BaseModel):
     resources: list[ResourceModel]
+
+# Rebuild models to resolve forward references
+def _rebuild_resource_models():
+    """Rebuild resource models to resolve forward references"""
+    try:
+        from models.user import UserResponse, User
+        from models.tag import TagModel, Tag
+        ResourceBase.model_rebuild()
+        ResourceBaseInput.model_rebuild()
+        ArticleResource.model_rebuild()
+        ArticleResourceInput.model_rebuild()
+        CodeSnippetResource.model_rebuild()
+        CodeSnippetResourceInput.model_rebuild()
+        LearningResourceBase.model_rebuild()
+        BookResource.model_rebuild()
+        BookResourceInput.model_rebuild()
+        CourseResource.model_rebuild()
+        CourseResourceInput.model_rebuild()
+        ResourceCollection.model_rebuild()
+        Resource.model_rebuild()
+    except ImportError:
+        pass
+
+_rebuild_resource_models()

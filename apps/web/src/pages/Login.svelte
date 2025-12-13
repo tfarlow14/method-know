@@ -1,6 +1,8 @@
 <script lang="ts">
   import { goto } from "../lib/router"
   import { setAuthToken } from "../lib/auth"
+  import { currentUser } from "../lib/stores"
+  import type { UserResponse } from "../lib/api/queries"
   import { createMutation } from "@tanstack/svelte-query"
   import {
     userMutations,
@@ -52,8 +54,11 @@
   const loginMutation = createMutation(() => ({
     ...userMutations.login(),
     onSuccess: (data: LoginResponse) => {
-      // Store auth token from API response
+      // Store auth token in localStorage
       setAuthToken(data.token)
+      
+      // Store user info in Svelte store
+      currentUser.set(data.user)
 
       // Redirect to root (dashboard) on success
       goto("/")
