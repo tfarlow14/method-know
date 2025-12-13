@@ -12,13 +12,7 @@ async def connect_to_mongo():
     Database.client = AsyncIOMotorClient(MONGO_URL)
     database = Database.client.get_database("knowledgehub")
     
-    # Import models from __init__.py to ensure all model rebuilds have happened
-    # This ensures forward references like Link["User"] are resolved
     from models import User, Tag, Resource
-    
-    # Ensure Resource model is rebuilt after User is imported
-    # This resolves the Link["User"] forward reference
-    Resource.model_rebuild()
     
     # Initialize Beanie with the database and document models
     await init_beanie(
