@@ -8,7 +8,8 @@ export const queryKeys = {
 		lists: () => [...queryKeys.users.all, 'list'] as const,
 		list: (filters: string) => [...queryKeys.users.lists(), { filters }] as const,
 		details: () => [...queryKeys.users.all, 'detail'] as const,
-		detail: (id: string) => [...queryKeys.users.details(), id] as const
+		detail: (id: string) => [...queryKeys.users.details(), id] as const,
+		me: () => [...queryKeys.users.all, 'me'] as const
 	},
 	resources: {
 		all: ['resources'] as const,
@@ -35,6 +36,11 @@ export const userQueries = {
 		queryOptions({
 			queryKey: queryKeys.users.detail(id),
 			queryFn: () => apiGet(`/users/${id}`)
+		}),
+	me: () =>
+		queryOptions({
+			queryKey: queryKeys.users.me(),
+			queryFn: () => apiGet<UserResponse>('/users/me')
 		})
 };
 
@@ -102,30 +108,40 @@ export interface LoginResponse {
 }
 
 // Resource types
+export const RESOURCE_TYPES = {
+	ARTICLE: 'article',
+	CODE_SNIPPET: 'code_snippet',
+	BOOK: 'book',
+	COURSE: 'course'
+} as const;
+
+export type ResourceType = (typeof RESOURCE_TYPES)[keyof typeof RESOURCE_TYPES];
+
 export interface ResourceBase {
 	id?: string;
 	title: string;
 	description: string;
 	user: UserResponse; // Required: populated user information from backend
 	tags: TagResponse[]; // Optional: 0 to many tags (empty array if none)
+	created_at?: string; // ISO 8601 datetime string (optional for backward compatibility)
 }
 
 export interface ArticleResource extends ResourceBase {
-	type: 'article';
+	type: typeof RESOURCE_TYPES.ARTICLE;
 	url: string;
 }
 
 export interface CodeSnippetResource extends ResourceBase {
-	type: 'code_snippet';
+	type: typeof RESOURCE_TYPES.CODE_SNIPPET;
 	code: string;
 }
 
 export interface BookResource extends ResourceBase {
-	type: 'book';
+	type: typeof RESOURCE_TYPES.BOOK;
 }
 
 export interface CourseResource extends ResourceBase {
-	type: 'course';
+	type: typeof RESOURCE_TYPES.COURSE;
 }
 
 export type Resource = ArticleResource | CodeSnippetResource | BookResource | CourseResource;
@@ -133,6 +149,40 @@ export type Resource = ArticleResource | CodeSnippetResource | BookResource | Co
 export interface ResourceCollection {
 	resources: Resource[];
 }
+
+// Resource input types
+export interface ArticleResourceInput {
+	type: typeof RESOURCE_TYPES.ARTICLE;
+	title: string;
+	description: string;
+	url: string;
+	tag_ids: string[];
+}
+
+export interface CodeSnippetResourceInput {
+	type: typeof RESOURCE_TYPES.CODE_SNIPPET;
+	title: string;
+	description: string;
+	code: string;
+	tag_ids: string[];
+}
+
+export interface BookResourceInput {
+	type: typeof RESOURCE_TYPES.BOOK;
+	title: string;
+	description: string;
+	tag_ids: string[];
+}
+
+export interface CourseResourceInput {
+	type: typeof RESOURCE_TYPES.COURSE;
+	title: string;
+	description: string;
+	url?: string;
+	tag_ids: string[];
+}
+
+export type ResourceInput = ArticleResourceInput | CodeSnippetResourceInput | BookResourceInput | CourseResourceInput;
 
 // Mutation functions
 export const userMutations = {
@@ -143,6 +193,20 @@ export const userMutations = {
 	login: () => ({
 		mutationFn: (data: LoginRequest): Promise<LoginResponse> =>
 			apiPost<LoginResponse>('/users/login', data)
+	})
+};
+
+export const resourceMutations = {
+	create: () => ({
+		mutationFn: (data: ResourceInput): Promise<Resource> =>
+			apiPost<Resource>('/resources', data)
+	})
+};
+
+export const tagMutations = {
+	create: () => ({
+		mutationFn: (data: { name: string }): Promise<TagResponse> =>
+			apiPost<TagResponse>('/tags', data)
 	})
 };
 

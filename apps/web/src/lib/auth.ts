@@ -4,8 +4,9 @@
  * Note: For production, consider using HttpOnly cookies instead of localStorage
  * for better security against XSS attacks.
  * 
- * User information is stored in Svelte stores (see stores.ts), not localStorage.
  * Only the authentication token is stored in localStorage.
+ * User information is stored in Svelte stores (see stores.ts) and fetched from the API
+ * on app initialization to avoid storing sensitive PII in localStorage.
  */
 
 const AUTH_TOKEN_KEY = 'authToken';

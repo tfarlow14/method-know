@@ -4,15 +4,17 @@
 	import { isAuthenticated, clearAuthToken } from '../lib/auth';
 	import { currentUser } from '../lib/stores';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { resourceQueries, tagQueries, userQueries, type ResourceCollection, type Resource } from '../lib/api/queries';
+	import { resourceQueries, tagQueries, type ResourceCollection, type Resource, RESOURCE_TYPES } from '../lib/api/queries';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Loader2, ExternalLink, Code, BookOpen, LogOut, Search, BookMarked, CircleUser, Newspaper, Pencil, Trash2, GraduationCap, BookOpenText } from '@lucide/svelte';
+	import ShareResource from '../components/ShareResource.svelte';
 
 	let searchQuery = $state('');
-	let selectedTypes = $state<Set<string>>(new Set(['article', 'code_snippet', 'learning_resource']));
+	let selectedTypes = $state<Set<string>>(new Set([RESOURCE_TYPES.ARTICLE, RESOURCE_TYPES.CODE_SNIPPET, 'learning_resource']));
 	let selectedTags = $state<Set<string>>(new Set());
+	let isShareResourceOpen = $state(false);
 	
 	// Get current user from Svelte store
 	const currentUserId = $derived($currentUser?.id || null);
@@ -24,14 +26,16 @@
 	}
 
 	function handleShareResource() {
-		// TODO: Navigate to share resource page
-		console.log('Share resource clicked');
+		isShareResourceOpen = true;
 	}
 
-	// Fetch resources, tags, and users
+	function handleCloseShareResource() {
+		isShareResourceOpen = false;
+	}
+
+	// Fetch resources and tags
 	const resourcesQuery = createQuery(() => resourceQueries.all());
 	const tagsQuery = createQuery(() => tagQueries.all());
-	const usersQuery = createQuery(() => userQueries.all());
 
 	// Log API errors to console
 	$effect(() => {
@@ -41,26 +45,17 @@
 		if (tagsQuery.isError && tagsQuery.error) {
 			console.error('API Error loading tags:', tagsQuery.error);
 		}
-		if (usersQuery.isError && usersQuery.error) {
-			console.error('API Error loading users:', usersQuery.error);
-		}
 	});
 
 	// Get user name from resource (returns first name only)
 	function getUserName(resource: Resource): string {
-		// Use user info from resource if available (preferred)
-		if (resource.user) {
+		// Resources always include user data from the backend
+		if (resource.user?.first_name) {
 			return resource.user.first_name;
 		}
-		// Fallback to current user if it's the logged-in user
+		// Fallback to current user if it's the logged-in user's resource
 		if (isOwnResource(resource) && $currentUser) {
 			return $currentUser.first_name;
-		}
-		// Fallback to querying users list (shouldn't be needed if user is populated)
-		if (usersQuery.data && resource.user.id) {
-			const users = (usersQuery.data as { users: Array<{ id: string; first_name: string; last_name: string }> }).users;
-			const user = users.find(u => String(u.id) === String(resource.user.id));
-			return user ? user.first_name : 'Unknown';
 		}
 		return 'Unknown';
 	}
@@ -93,8 +88,8 @@
 		const hasSearch = searchQuery.trim().length > 0;
 		// Check if all default types are selected (default state)
 		const allDefaultTypesSelected = selectedTypes.size === 3 && 
-			selectedTypes.has('article') && 
-			selectedTypes.has('code_snippet') && 
+			selectedTypes.has(RESOURCE_TYPES.ARTICLE) && 
+			selectedTypes.has(RESOURCE_TYPES.CODE_SNIPPET) && 
 			selectedTypes.has('learning_resource');
 		const hasTypeFilter = !allDefaultTypesSelected;
 		const hasTagFilter = selectedTags.size > 0;
@@ -119,9 +114,9 @@
 		// Filter by type
 		if (selectedTypes.size > 0) {
 			resources = resources.filter(r => {
-				if (r.type === 'article') return selectedTypes.has('article');
-				if (r.type === 'code_snippet') return selectedTypes.has('code_snippet');
-				if (r.type === 'book' || r.type === 'course') return selectedTypes.has('learning_resource');
+				if (r.type === RESOURCE_TYPES.ARTICLE) return selectedTypes.has(RESOURCE_TYPES.ARTICLE);
+				if (r.type === RESOURCE_TYPES.CODE_SNIPPET) return selectedTypes.has(RESOURCE_TYPES.CODE_SNIPPET);
+				if (r.type === RESOURCE_TYPES.BOOK || r.type === RESOURCE_TYPES.COURSE) return selectedTypes.has('learning_resource');
 				return false;
 			});
 		}
@@ -175,26 +170,45 @@
 
 	// Get resource type display name
 	function getResourceTypeName(resource: Resource): string {
-		if (resource.type === 'article') return 'Article';
-		if (resource.type === 'code_snippet') return 'Code Snippet';
-		if (resource.type === 'book') return 'Book';
-		if (resource.type === 'course') return 'Course';
+		if (resource.type === RESOURCE_TYPES.ARTICLE) return 'Article';
+		if (resource.type === RESOURCE_TYPES.CODE_SNIPPET) return 'Code Snippet';
+		if (resource.type === RESOURCE_TYPES.BOOK) return 'Book';
+		if (resource.type === RESOURCE_TYPES.COURSE) return 'Course';
 		return 'Learning Resource';
 	}
 
 	// Get resource type icon
 	function getResourceTypeIcon(resource: Resource) {
-		if (resource.type === 'article') return Newspaper;
-		if (resource.type === 'code_snippet') return Code;
-		if (resource.type === 'book') return BookOpenText;
-		if (resource.type === 'course') return GraduationCap;
+		if (resource.type === RESOURCE_TYPES.ARTICLE) return Newspaper;
+		if (resource.type === RESOURCE_TYPES.CODE_SNIPPET) return Code;
+		if (resource.type === RESOURCE_TYPES.BOOK) return BookOpenText;
+		if (resource.type === RESOURCE_TYPES.COURSE) return GraduationCap;
 		return BookOpen;
 	}
 
-	// Format date (placeholder - resources don't have created_at yet)
+	// Format date from created_at timestamp
 	function formatDate(resource: Resource): string {
-		// TODO: Use actual created_at when available
-		return 'Today';
+		if (!resource.created_at) {
+			return 'Unknown';
+		}
+		
+		const date = new Date(resource.created_at);
+		const now = new Date();
+		
+		// Normalize dates to midnight for accurate day comparison
+		const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+		const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		
+		const diffMs = nowStart.getTime() - dateStart.getTime();
+		const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+		
+		if (diffDays === 0) {
+			return 'Today';
+		} else if (diffDays === 1) {
+			return 'Yesterday';
+		} else {
+			return `${diffDays} days ago`;
+		}
 	}
 
 	// Check if resource is owned by current user
@@ -360,47 +374,46 @@
 							</CardContent>
 						</Card>
 					{:else if filteredResources.length > 0}
-						<div class="flex flex-col gap-4 h-[649px] overflow-y-auto">
-							{#each Array(Math.ceil(filteredResources.length / 2)) as _, rowIndex}
-								{@const startIdx = rowIndex * 2}
-								{@const rowResources = filteredResources.slice(startIdx, startIdx + 2)}
-								<div class="flex gap-4">
-									{#each rowResources as resource}
-										{@const TypeIcon = getResourceTypeIcon(resource)}
-										<Card class="flex-1 bg-white border border-slate-900/12 rounded-2xl p-4">
-											<CardContent class="pt-2.5 pb-0 px-0">
-												<div class="flex flex-col gap-[10px]">
-													<!-- Header with type badge and actions -->
-													<div class="flex items-center justify-between">
-														<div class="bg-white border border-slate-900/15 rounded-full flex gap-2 h-7 items-center justify-center px-2">
-															<TypeIcon class="w-5 h-5 text-black" />
-															<span class="text-sm font-medium leading-[14px] text-black">
-																{getResourceTypeName(resource)}
-															</span>
-														</div>
-														{#if isOwnResource(resource)}
-															<div class="flex gap-2.5 items-center">
-																<button class="w-6 h-6 cursor-pointer">
-																	<Pencil class="w-6 h-6 text-slate-900" />
-																</button>
-																<button class="w-6 h-6 cursor-pointer">
-																	<Trash2 class="w-6 h-6 text-slate-900" />
-																</button>
-															</div>
-														{/if}
+						<div class="h-[649px] overflow-y-auto">
+							<div class="grid grid-cols-2 gap-4 items-start">
+								{#each filteredResources as resource}
+									{@const TypeIcon = getResourceTypeIcon(resource)}
+									<Card class="bg-white border border-slate-900/12 rounded-2xl p-4 flex flex-col h-full">
+										<CardContent class="pt-2.5 pb-0 px-0 flex flex-col flex-1 min-h-0">
+											<div class="flex flex-col gap-[10px] h-full">
+												<!-- Header with type badge and actions -->
+												<div class="flex items-center justify-between shrink-0">
+													<div class="bg-white border border-slate-900/15 rounded-full flex gap-2 h-7 items-center justify-center px-2">
+														<TypeIcon class="w-5 h-5 text-black" />
+														<span class="text-sm font-medium leading-[14px] text-black">
+															{getResourceTypeName(resource)}
+														</span>
 													</div>
+													{#if isOwnResource(resource)}
+														<div class="flex gap-2.5 items-center">
+															<button class="w-6 h-6 cursor-pointer">
+																<Pencil class="w-6 h-6 text-slate-900" />
+															</button>
+															<button class="w-6 h-6 cursor-pointer">
+																<Trash2 class="w-6 h-6 text-slate-900" />
+															</button>
+														</div>
+													{/if}
+												</div>
 
-													<!-- Title -->
-													<h3 class="text-lg font-semibold leading-7 text-slate-900">
-														{resource.title}
-													</h3>
+												<!-- Title -->
+												<h3 class="text-lg font-semibold leading-7 text-slate-900 shrink-0">
+													{resource.title}
+												</h3>
 
+												<!-- Middle content area - grows to fill space -->
+												<div class="flex flex-col gap-[10px] flex-1 min-h-0">
 													<!-- Description and Link -->
 													<div class="flex flex-col gap-[10px]">
 														<p class="text-base font-normal leading-7 text-slate-900">
 															{resource.description}
 														</p>
-														{#if resource.type === 'article' && resource.url}
+														{#if resource.type === RESOURCE_TYPES.ARTICLE && resource.url}
 															<a
 																href={resource.url}
 																target="_blank"
@@ -410,7 +423,7 @@
 																<ExternalLink class="w-5 h-5" />
 																View article
 															</a>
-														{:else if (resource.type === 'book' || resource.type === 'course') && 'author' in resource}
+														{:else if (resource.type === RESOURCE_TYPES.BOOK || resource.type === RESOURCE_TYPES.COURSE) && 'author' in resource}
 															<div class="flex gap-2 items-center">
 																<BookOpenText class="w-5 h-5 text-slate-900" />
 																<span class="text-base font-normal leading-7 text-slate-900">
@@ -430,11 +443,13 @@
 															{/each}
 														</div>
 													{/if}
+												</div>
 
+												<!-- Footer with user and date - fixed to bottom -->
+												<div class="shrink-0">
 													<!-- Divider -->
-													<div class="h-px bg-slate-200 w-full"></div>
-
-													<!-- Footer with user and date -->
+													<div class="h-px bg-slate-200 w-full mb-[10px]"></div>
+													<!-- Footer content -->
 													<div class="flex items-center justify-between">
 														<div class="flex gap-1 items-center">
 															<CircleUser class="w-9 h-9 text-slate-900" />
@@ -447,11 +462,11 @@
 														</span>
 													</div>
 												</div>
-											</CardContent>
-										</Card>
-									{/each}
-								</div>
-							{/each}
+											</div>
+										</CardContent>
+									</Card>
+								{/each}
+							</div>
 						</div>
 					{:else}
 						<Card>
@@ -467,5 +482,8 @@
 			</div>
 		</div>
 	</main>
+
+	<!-- Share Resource Modal -->
+	<ShareResource isOpen={isShareResourceOpen} onClose={handleCloseShareResource} />
 </div>
 

@@ -1,0 +1,459 @@
+<script lang="ts">
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { resourceMutations, tagMutations, tagQueries, type ResourceInput, type ResourceType, RESOURCE_TYPES } from '../lib/api/queries';
+	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import { X } from '@lucide/svelte';
+	import { Loader2 } from '@lucide/svelte';
+
+	interface Props {
+		isOpen?: boolean;
+		onClose?: () => void;
+	}
+
+	const { isOpen = $bindable(false), onClose = () => {} }: Props = $props();
+
+	const queryClient = useQueryClient();
+
+	// Form state
+	let resourceType = $state<ResourceType>(RESOURCE_TYPES.ARTICLE);
+	let title = $state('');
+	let description = $state('');
+	let url = $state('');
+	let code = $state('');
+	let tagInput = $state('');
+	let selectedTags = $state<Array<{ id?: string; name: string; isNew?: boolean }>>([]);
+	let isTagDropdownOpen = $state(false);
+	let tagSearchQuery = $state('');
+
+	// Fetch existing tags
+	const tagsQuery = createQuery(() => tagQueries.all());
+	const tags = $derived(tagsQuery.data?.tags || []);
+
+	// Filter tags based on search query and exclude already selected
+	const filteredTags = $derived.by(() => {
+		const query = tagSearchQuery.toLowerCase().trim();
+		const selectedTagNames = new Set(selectedTags.map(t => t.name.toLowerCase()));
+		
+		return tags.filter(tag => {
+			const isNotSelected = !selectedTagNames.has(tag.name.toLowerCase());
+			const matchesQuery = !query || tag.name.toLowerCase().includes(query);
+			return isNotSelected && matchesQuery;
+		});
+	});
+
+	// Tag creation mutation (used only when submitting resource)
+	const createTagMutation = createMutation(() => ({
+		...tagMutations.create()
+	}));
+
+	// Resource creation mutation
+	const createResourceMutation = createMutation(() => ({
+		...resourceMutations.create(),
+		onSuccess: () => {
+			// Reset form
+			resourceType = RESOURCE_TYPES.ARTICLE;
+			title = '';
+			description = '';
+			url = '';
+			code = '';
+			tagInput = '';
+			tagSearchQuery = '';
+			selectedTags = [];
+			isTagDropdownOpen = false;
+			// Invalidate queries to refresh lists
+			queryClient.invalidateQueries({ queryKey: ['resources'] });
+			queryClient.invalidateQueries({ queryKey: ['tags'] });
+			// Close modal
+			onClose();
+		}
+	}));
+
+	function handleAddTag(tagName?: string) {
+		const nameToAdd = (tagName || tagSearchQuery).trim();
+		if (!nameToAdd) return;
+
+		// Check if tag already exists
+		const existingTag = tags.find(t => t.name.toLowerCase() === nameToAdd.toLowerCase());
+		if (existingTag) {
+			// Add existing tag if not already selected
+			if (!selectedTags.find(t => t.id === existingTag.id || t.name === existingTag.name)) {
+				selectedTags = [...selectedTags, existingTag];
+				tagSearchQuery = '';
+				isTagDropdownOpen = false;
+			}
+		} else {
+			// Add as new tag (not yet created in database)
+			if (!selectedTags.find(t => t.name.toLowerCase() === nameToAdd.toLowerCase())) {
+				selectedTags = [...selectedTags, { name: nameToAdd, isNew: true }];
+				tagSearchQuery = '';
+				isTagDropdownOpen = false;
+			}
+		}
+	}
+
+	function handleSelectTag(tag: { id?: string; name: string }) {
+		if (!selectedTags.find(t => t.id === tag.id || t.name === tag.name)) {
+			selectedTags = [...selectedTags, tag];
+			tagSearchQuery = '';
+			isTagDropdownOpen = false;
+		}
+	}
+
+	function handleRemoveTag(tagToRemove: { id?: string; name: string }) {
+		selectedTags = selectedTags.filter(t => 
+			t.id !== tagToRemove.id && t.name !== tagToRemove.name
+		);
+	}
+
+	async function handleSubmit() {
+		if (!title.trim() || !description.trim()) {
+			return;
+		}
+
+		// Validate type-specific fields
+		if (resourceType === RESOURCE_TYPES.ARTICLE && !url.trim()) {
+			return;
+		}
+		if (resourceType === RESOURCE_TYPES.CODE_SNIPPET && !code.trim()) {
+			return;
+		}
+
+		try {
+			// First, create any new tags
+			const newTagNames = selectedTags.filter(t => t.isNew).map(t => t.name);
+			const createdTags: Array<{ id: string; name: string }> = [];
+
+			for (const tagName of newTagNames) {
+				const newTag = await createTagMutation.mutateAsync({ name: tagName });
+				createdTags.push(newTag);
+			}
+
+			// Get all tag IDs (existing + newly created)
+			const tagIds = selectedTags
+				.map(tag => {
+					if (tag.isNew) {
+						// Find the newly created tag
+						const createdTag = createdTags.find(t => t.name === tag.name);
+						return createdTag?.id;
+					} else {
+						// Use existing tag ID
+						const existingTag = tags.find(t => t.name === tag.name);
+						return existingTag?.id || tag.id;
+					}
+				})
+				.filter((id): id is string => !!id);
+
+			// Build resource input based on type
+			let resourceInput: ResourceInput;
+			
+			if (resourceType === RESOURCE_TYPES.ARTICLE) {
+				resourceInput = {
+					type: RESOURCE_TYPES.ARTICLE,
+					title: title.trim(),
+					description: description.trim(),
+					url: url.trim(),
+					tag_ids: tagIds
+				};
+			} else if (resourceType === RESOURCE_TYPES.CODE_SNIPPET) {
+				resourceInput = {
+					type: RESOURCE_TYPES.CODE_SNIPPET,
+					title: title.trim(),
+					description: description.trim(),
+					code: code.trim(),
+					tag_ids: tagIds
+				};
+			} else if (resourceType === RESOURCE_TYPES.BOOK) {
+				resourceInput = {
+					type: RESOURCE_TYPES.BOOK,
+					title: title.trim(),
+					description: description.trim(),
+					tag_ids: tagIds
+				};
+			} else {
+				resourceInput = {
+					type: RESOURCE_TYPES.COURSE,
+					title: title.trim(),
+					description: description.trim(),
+					url: url.trim() || undefined,
+					tag_ids: tagIds
+				};
+			}
+
+			// Create the resource
+			await createResourceMutation.mutateAsync(resourceInput);
+		} catch (error) {
+			// Error handling is done by the mutation
+			console.error('Error creating resource:', error);
+		}
+	}
+
+	function handleCancel() {
+		// Reset form
+		resourceType = RESOURCE_TYPES.ARTICLE;
+		title = '';
+		description = '';
+		url = '';
+		code = '';
+		tagInput = '';
+		tagSearchQuery = '';
+		selectedTags = [];
+		isTagDropdownOpen = false;
+		onClose();
+	}
+
+
+	// Check if form is valid
+	const isFormValid = $derived.by(() => {
+		if (!title.trim() || !description.trim()) return false;
+		if (resourceType === RESOURCE_TYPES.ARTICLE && !url.trim()) return false;
+		if (resourceType === RESOURCE_TYPES.CODE_SNIPPET && !code.trim()) return false;
+		return true;
+	});
+
+	// Close dropdown when clicking outside
+	function handleClickOutside(event: MouseEvent) {
+		const target = event.target as HTMLElement;
+		if (!target.closest('.tag-dropdown-container')) {
+			isTagDropdownOpen = false;
+		}
+	}
+
+	// Add click outside listener
+	$effect(() => {
+		if (isTagDropdownOpen) {
+			document.addEventListener('click', handleClickOutside);
+			return () => document.removeEventListener('click', handleClickOutside);
+		}
+	});
+</script>
+
+{#if isOpen}
+	<!-- Backdrop -->
+	<div 
+		class="fixed inset-0 z-40"
+		onclick={handleCancel}
+		role="button"
+		tabindex="-1"
+	></div>
+
+	<!-- Modal -->
+	<div class="fixed right-[52px] top-[117px] w-[511px] h-[85vh] bg-white border border-slate-100 rounded-md shadow-lg z-50 flex flex-col p-4 gap-4 overflow-hidden">
+		<!-- Header -->
+		<div class="flex items-center justify-between shrink-0">
+			<h2 class="text-lg font-semibold leading-7 text-slate-900">Share a resource</h2>
+			<button
+				onclick={handleCancel}
+				class="w-6 h-6 flex items-center justify-center cursor-pointer hover:bg-slate-100 rounded"
+				aria-label="Close"
+			>
+				<X class="w-5 h-5 text-slate-900" />
+			</button>
+		</div>
+
+		<p class="text-base font-normal leading-7 text-slate-900 shrink-0">
+			Contribute to the knowledge base by sharing valuable content
+		</p>
+
+		<!-- Form -->
+		<form 
+			class="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden"
+			onsubmit={(e) => {
+				e.preventDefault();
+				handleSubmit();
+			}}
+		>
+			<!-- Scrollable content area -->
+			<div class="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto pr-1">
+			<!-- Resource Type -->
+			<div class="flex flex-col gap-1.5 shrink-0">
+				<Label for="resource-type" class="text-sm font-medium leading-5 text-slate-900">
+					Resource Type
+				</Label>
+				<select
+					id="resource-type"
+					bind:value={resourceType}
+					class="h-auto w-full rounded-md border border-slate-300 text-base leading-6 pl-3 pr-10 py-2 bg-white box-border focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+				>
+					<option value={RESOURCE_TYPES.ARTICLE}>Article</option>
+					<option value={RESOURCE_TYPES.CODE_SNIPPET}>Code Snippet</option>
+					<option value={RESOURCE_TYPES.BOOK}>Book</option>
+					<option value={RESOURCE_TYPES.COURSE}>Course</option>
+				</select>
+			</div>
+
+			<!-- Title -->
+			<div class="flex flex-col gap-1.5 shrink-0">
+				<Label for="title" class="text-sm font-medium leading-5 text-slate-900">
+					Title
+				</Label>
+				<Input
+					id="title"
+					type="text"
+					bind:value={title}
+					placeholder="Enter a descriptive title"
+					required
+					class="h-auto w-full rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 pl-3 pr-3 py-2 bg-white box-border"
+				/>
+			</div>
+
+			<!-- Description -->
+			<div class="flex flex-col gap-1.5 shrink-0">
+				<Label for="description" class="text-sm font-medium leading-5 text-slate-900">
+					Description
+				</Label>
+				<textarea
+					id="description"
+					bind:value={description}
+					placeholder="Provide a detailed description"
+					required
+					rows="4"
+					class="w-full rounded-md border border-slate-300 placeholder:text-slate-400 text-base leading-6 pl-3 pr-3 py-2 bg-white box-border resize-none focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+				></textarea>
+			</div>
+
+			<!-- Tags -->
+			<div class="flex flex-col gap-1.5 shrink-0 tag-dropdown-container relative">
+				<Label for="tags" class="text-sm font-medium leading-5 text-slate-900">
+					Tags
+				</Label>
+				<div class="flex gap-2 relative">
+					<div class="flex-1 relative">
+						<div 
+							class="min-h-[42px] w-full rounded-md border border-slate-300 bg-white box-border flex flex-wrap items-center gap-1.5 px-2 py-1.5 cursor-text focus-within:ring-2 focus-within:ring-slate-900 focus-within:border-transparent"
+							onclick={() => {
+								const input = document.getElementById('tags-input') as HTMLInputElement;
+								input?.focus();
+							}}
+						>
+							{#each selectedTags as tag}
+								<span class="bg-slate-900 px-2 py-0.5 rounded-full text-xs font-medium leading-5 text-white h-[22px] flex items-center gap-1 shrink-0">
+									{tag.name}
+									<button
+										type="button"
+										onclick={(e) => {
+											e.stopPropagation();
+											handleRemoveTag(tag);
+										}}
+										class="ml-0.5 hover:text-slate-300 flex items-center text-white"
+										aria-label="Remove tag"
+									>
+										<X class="w-3 h-3" />
+									</button>
+								</span>
+							{/each}
+							<input
+								id="tags-input"
+								type="text"
+								bind:value={tagSearchQuery}
+								onfocus={() => isTagDropdownOpen = true}
+								onkeydown={(e) => {
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										if (tagSearchQuery.trim()) {
+											handleAddTag(tagSearchQuery);
+										}
+									} else if (e.key === 'Escape') {
+										isTagDropdownOpen = false;
+									} else if (e.key === 'Backspace' && !tagSearchQuery && selectedTags.length > 0) {
+										// Remove last tag on backspace when input is empty
+										handleRemoveTag(selectedTags[selectedTags.length - 1]);
+									}
+								}}
+								placeholder={selectedTags.length === 0 ? "Search or create tags" : ""}
+								class="flex-1 min-w-[120px] outline-none text-base leading-6 text-slate-900 placeholder:text-slate-400 bg-transparent border-none"
+							/>
+						</div>
+						{#if isTagDropdownOpen && (filteredTags.length > 0 || tagSearchQuery.trim())}
+							<div class="absolute z-50 w-full mt-1 bg-white border border-slate-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+								{#if filteredTags.length > 0}
+									{#each filteredTags as tag}
+										<button
+											type="button"
+											onclick={() => handleSelectTag(tag)}
+											class="w-full text-left px-3 py-2 hover:bg-slate-100 text-sm text-slate-900"
+										>
+											{tag.name}
+										</button>
+									{/each}
+								{/if}
+								{#if tagSearchQuery.trim() && !tags.find(t => t.name.toLowerCase() === tagSearchQuery.toLowerCase().trim())}
+									<button
+										type="button"
+										onclick={() => handleAddTag(tagSearchQuery)}
+										class="w-full text-left px-3 py-2 hover:bg-slate-100 text-sm text-slate-600 border-t border-slate-200"
+									>
+										Add "{tagSearchQuery.trim()}"
+									</button>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</div>
+			</div>
+
+			<!-- URL (conditional for article and course) -->
+			{#if resourceType === RESOURCE_TYPES.ARTICLE || resourceType === RESOURCE_TYPES.COURSE}
+				<div class="flex flex-col gap-1.5 shrink-0">
+					<Label for="url" class="text-sm font-medium leading-5 text-slate-900">
+						{resourceType === RESOURCE_TYPES.ARTICLE ? 'Article URL' : 'Course URL'}
+					</Label>
+					<Input
+						id="url"
+						type="url"
+						bind:value={url}
+						placeholder="example.com/article"
+						required={resourceType === RESOURCE_TYPES.ARTICLE}
+						class="h-auto w-full rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 pl-3 pr-3 py-2 bg-white box-border"
+					/>
+				</div>
+			{/if}
+
+			<!-- Code (conditional) -->
+			{#if resourceType === RESOURCE_TYPES.CODE_SNIPPET}
+				<div class="flex flex-col gap-1.5 shrink-0">
+					<Label for="code" class="text-sm font-medium leading-5 text-slate-900">
+						Code
+					</Label>
+					<textarea
+						id="code"
+						bind:value={code}
+						placeholder="Paste your code here"
+						required
+						rows="8"
+						class="w-full rounded-md border border-slate-300 placeholder:text-slate-400 text-sm leading-6 pl-3 pr-3 py-2 bg-white box-border resize-none font-mono focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+					></textarea>
+				</div>
+			{/if}
+
+			</div>
+
+			<!-- Fixed footer with buttons -->
+			<div class="shrink-0 flex flex-col gap-4 pt-4 border-t border-slate-200">
+				<div class="flex gap-4">
+					<Button
+						type="button"
+						onclick={handleCancel}
+						class="flex-1 h-auto rounded-md border border-black/10 bg-white hover:bg-slate-50 font-medium text-sm leading-6 px-4 py-2 text-black"
+					>
+						Cancel
+					</Button>
+					<Button
+						type="submit"
+						disabled={!isFormValid || createResourceMutation.isPending}
+						class="flex-1 h-auto rounded-md bg-slate-900 hover:bg-slate-900/90 font-medium text-sm leading-6 px-4 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if createResourceMutation.isPending}
+							<Loader2 class="mr-2 h-4 w-4 animate-spin inline" />
+							Sharing...
+						{:else}
+							Share
+						{/if}
+					</Button>
+				</div>
+			</div>
+		</form>
+	</div>
+{/if}
+

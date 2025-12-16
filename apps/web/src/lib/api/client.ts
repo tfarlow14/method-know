@@ -1,4 +1,5 @@
 import { getAuthToken, clearAuthToken } from '$lib/auth';
+import { currentUser } from '$lib/stores';
 import { goto } from '$lib/router';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -35,7 +36,7 @@ export async function apiRequest<T>(
 		headers
 	});
 
-	if (!response.ok) {
+		if (!response.ok) {
 		// Handle expired/invalid token (401 Unauthorized)
 		if (response.status === 401) {
 			// Don't redirect if we're already on the login page or if this is a login request
@@ -47,6 +48,7 @@ export async function apiRequest<T>(
 			
 			if (!isLoginPage && !isLoginRequest) {
 				clearAuthToken();
+				currentUser.set(null); // Clear user store on auth failure
 				goto('/login');
 			}
 		}
