@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/svelte-query';
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, apiPut, apiDelete } from './client';
 
 // Example query keys - organize by resource type
 export const queryKeys = {
@@ -200,6 +200,14 @@ export const resourceMutations = {
 	create: () => ({
 		mutationFn: (data: ResourceInput): Promise<Resource> =>
 			apiPost<Resource>('/resources', data)
+	}),
+	update: () => ({
+		mutationFn: ({ id, data }: { id: string; data: ResourceInput }): Promise<Resource> =>
+			apiPut<Resource>(`/resources/${id}`, data)
+	}),
+	delete: () => ({
+		mutationFn: (id: string): Promise<void> =>
+			apiDelete<void>(`/resources/${id}`)
 	})
 };
 

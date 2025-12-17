@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { resourceMutations, tagMutations, tagQueries, type ResourceInput, type ResourceType, RESOURCE_TYPES } from '../lib/api/queries';
+	import { resourceMutations, tagMutations, tagQueries, type ResourceInput, type ResourceType, RESOURCE_TYPES, type Resource } from '../lib/api/queries';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -10,9 +10,10 @@
 	interface Props {
 		isOpen?: boolean;
 		onClose?: () => void;
+		resource?: Resource | null;
 	}
 
-	const { isOpen = $bindable(false), onClose = () => {} }: Props = $props();
+	let { isOpen = $bindable(false), onClose = () => {}, resource = null }: Props = $props();
 
 	const queryClient = useQueryClient();
 
@@ -69,6 +70,32 @@
 			onClose();
 		}
 	}));
+
+	// Resource update mutation
+	const updateResourceMutation = createMutation(() => ({
+		...resourceMutations.update(),
+		onSuccess: () => {
+			// Reset form
+			resourceType = RESOURCE_TYPES.ARTICLE;
+			title = '';
+			description = '';
+			url = '';
+			code = '';
+			tagInput = '';
+			tagSearchQuery = '';
+			selectedTags = [];
+			isTagDropdownOpen = false;
+			// Invalidate queries to refresh lists
+			queryClient.invalidateQueries({ queryKey: ['resources'] });
+			queryClient.invalidateQueries({ queryKey: ['tags'] });
+			// Close modal
+			onClose();
+		}
+	}));
+
+	// Check if we're in edit mode
+	const isEditMode = $derived(!!resource);
+	const editingResourceId = $derived(resource?.id || null);
 
 	function handleAddTag(tagName?: string) {
 		const nameToAdd = (tagName || tagSearchQuery).trim();
@@ -181,11 +208,18 @@
 				};
 			}
 
-			// Create the resource
-			await createResourceMutation.mutateAsync(resourceInput);
+			// Create or update the resource
+			if (isEditMode && editingResourceId) {
+				await updateResourceMutation.mutateAsync({
+					id: editingResourceId,
+					data: resourceInput
+				});
+			} else {
+				await createResourceMutation.mutateAsync(resourceInput);
+			}
 		} catch (error) {
 			// Error handling is done by the mutation
-			console.error('Error creating resource:', error);
+			console.error(`Error ${isEditMode ? 'updating' : 'creating'} resource:`, error);
 		}
 	}
 
@@ -227,6 +261,38 @@
 			return () => document.removeEventListener('click', handleClickOutside);
 		}
 	});
+
+	// Populate form when resource is provided (edit mode)
+	$effect(() => {
+		if (resource && isOpen) {
+			resourceType = resource.type as ResourceType;
+			title = resource.title;
+			description = resource.description;
+			
+			if (resource.type === RESOURCE_TYPES.ARTICLE && 'url' in resource) {
+				url = resource.url || '';
+			} else if (resource.type === RESOURCE_TYPES.COURSE && 'url' in resource) {
+				url = resource.url || '';
+			} else if (resource.type === RESOURCE_TYPES.CODE_SNIPPET && 'code' in resource) {
+				code = resource.code || '';
+			}
+			
+			// Populate tags from resource
+			selectedTags = resource.tags.map(tag => ({
+				id: tag.id,
+				name: tag.name
+			}));
+		} else if (!resource && isOpen) {
+			// Reset form when opening in create mode
+			resourceType = RESOURCE_TYPES.ARTICLE;
+			title = '';
+			description = '';
+			url = '';
+			code = '';
+			selectedTags = [];
+			tagSearchQuery = '';
+		}
+	});
 </script>
 
 {#if isOpen}
@@ -242,7 +308,9 @@
 	<div class="fixed right-[52px] top-[117px] w-[511px] h-[85vh] bg-white border border-slate-100 rounded-md shadow-lg z-50 flex flex-col p-4 gap-4 overflow-hidden">
 		<!-- Header -->
 		<div class="flex items-center justify-between shrink-0">
-			<h2 class="text-lg font-semibold leading-7 text-slate-900">Share a resource</h2>
+			<h2 class="text-lg font-semibold leading-7 text-slate-900">
+				{isEditMode ? 'Edit resource' : 'Share a resource'}
+			</h2>
 			<button
 				onclick={handleCancel}
 				class="w-6 h-6 flex items-center justify-center cursor-pointer hover:bg-slate-100 rounded"
@@ -252,9 +320,11 @@
 			</button>
 		</div>
 
-		<p class="text-base font-normal leading-7 text-slate-900 shrink-0">
-			Contribute to the knowledge base by sharing valuable content
-		</p>
+		{#if !isEditMode}
+			<p class="text-base font-normal leading-7 text-slate-900 shrink-0">
+				Contribute to the knowledge base by sharing valuable content
+			</p>
+		{/if}
 
 		<!-- Form -->
 		<form 
@@ -266,22 +336,24 @@
 		>
 			<!-- Scrollable content area -->
 			<div class="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto pr-1">
-			<!-- Resource Type -->
-			<div class="flex flex-col gap-1.5 shrink-0">
-				<Label for="resource-type" class="text-sm font-medium leading-5 text-slate-900">
-					Resource Type
-				</Label>
-				<select
-					id="resource-type"
-					bind:value={resourceType}
-					class="h-auto w-full rounded-md border border-slate-300 text-base leading-6 pl-3 pr-10 py-2 bg-white box-border focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-				>
-					<option value={RESOURCE_TYPES.ARTICLE}>Article</option>
-					<option value={RESOURCE_TYPES.CODE_SNIPPET}>Code Snippet</option>
-					<option value={RESOURCE_TYPES.BOOK}>Book</option>
-					<option value={RESOURCE_TYPES.COURSE}>Course</option>
-				</select>
-			</div>
+			<!-- Resource Type (only show in create mode) -->
+			{#if !isEditMode}
+				<div class="flex flex-col gap-1.5 shrink-0">
+					<Label for="resource-type" class="text-sm font-medium leading-5 text-slate-900">
+						Resource Type
+					</Label>
+					<select
+						id="resource-type"
+						bind:value={resourceType}
+						class="h-auto w-full rounded-md border border-slate-300 text-base leading-6 pl-3 pr-10 py-2 bg-white box-border focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+					>
+						<option value={RESOURCE_TYPES.ARTICLE}>Article</option>
+						<option value={RESOURCE_TYPES.CODE_SNIPPET}>Code Snippet</option>
+						<option value={RESOURCE_TYPES.BOOK}>Book</option>
+						<option value={RESOURCE_TYPES.COURSE}>Course</option>
+					</select>
+				</div>
+			{/if}
 
 			<!-- Title -->
 			<div class="flex flex-col gap-1.5 shrink-0">
@@ -441,14 +513,14 @@
 					</Button>
 					<Button
 						type="submit"
-						disabled={!isFormValid || createResourceMutation.isPending}
+						disabled={!isFormValid || createResourceMutation.isPending || updateResourceMutation.isPending}
 						class="flex-1 h-auto rounded-md bg-slate-900 hover:bg-slate-900/90 font-medium text-sm leading-6 px-4 py-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
 					>
-						{#if createResourceMutation.isPending}
+						{#if createResourceMutation.isPending || updateResourceMutation.isPending}
 							<Loader2 class="mr-2 h-4 w-4 animate-spin inline" />
-							Sharing...
+							{isEditMode ? 'Saving...' : 'Sharing...'}
 						{:else}
-							Share
+							{isEditMode ? 'Save Changes' : 'Share'}
 						{/if}
 					</Button>
 				</div>

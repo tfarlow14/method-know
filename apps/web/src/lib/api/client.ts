@@ -36,7 +36,7 @@ export async function apiRequest<T>(
 		headers
 	});
 
-		if (!response.ok) {
+	if (!response.ok) {
 		// Handle expired/invalid token (401 Unauthorized)
 		if (response.status === 401) {
 			// Don't redirect if we're already on the login page or if this is a login request
@@ -59,7 +59,19 @@ export async function apiRequest<T>(
 		throw new Error(error.detail || 'An error occurred');
 	}
 
-	return response.json();
+	// Handle 204 No Content responses (no body to parse)
+	if (response.status === 204) {
+		return undefined as T;
+	}
+
+	// Check if response has content to parse
+	const contentType = response.headers.get('content-type');
+	if (contentType && contentType.includes('application/json')) {
+		return response.json();
+	}
+
+	// For other content types or empty responses, return undefined
+	return undefined as T;
 }
 
 /**

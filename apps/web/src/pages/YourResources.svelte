@@ -4,14 +4,15 @@
 	import { isAuthenticated, clearAuthToken } from '../lib/auth';
 	import { currentUser } from '../lib/stores';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { resourceQueries, resourceMutations, tagQueries, type ResourceCollection, type Resource, RESOURCE_TYPES } from '../lib/api/queries';
-	import { Card, CardContent } from '$lib/components/ui/card';
+	import { resourceQueries, resourceMutations, type ResourceCollection, type Resource, RESOURCE_TYPES } from '../lib/api/queries';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { Loader2, ExternalLink, Code, BookOpen, LogOut, Search, BookMarked, CircleUser, Newspaper, Pencil, Trash2, GraduationCap, BookOpenText } from '@lucide/svelte';
+	import { Card, CardContent } from '$lib/components/ui/card';
+	import { Loader2, Search, BookMarked, CircleUser } from '@lucide/svelte';
 	import ShareResource from '../components/ShareResource.svelte';
 	import UserDropdown from '../components/UserDropdown.svelte';
 	import ResourceCard from '../components/ResourceCard.svelte';
+	import FiltersSidebar from '../components/FiltersSidebar.svelte';
 	import DeleteResourceModal from '../components/DeleteResourceModal.svelte';
 
 	let searchQuery = $state('');
@@ -30,7 +31,7 @@
 
 	function handleSignOut() {
 		clearAuthToken();
-		currentUser.set(null); // Clear user from store
+		currentUser.set(null);
 		goto('/login');
 	}
 
@@ -106,72 +107,23 @@
 
 	// Fetch resources and tags
 	const resourcesQuery = createQuery(() => resourceQueries.all());
-	const tagsQuery = createQuery(() => tagQueries.all());
 
 	// Log API errors to console
 	$effect(() => {
 		if (resourcesQuery.isError && resourcesQuery.error) {
 			console.error('API Error loading resources:', resourcesQuery.error);
 		}
-		if (tagsQuery.isError && tagsQuery.error) {
-			console.error('API Error loading tags:', tagsQuery.error);
-		}
 	});
 
-	// Get user name from resource (returns first name only)
-	function getUserName(resource: Resource): string {
-		// Resources always include user data from the backend
-		if (resource.user?.first_name) {
-			return resource.user.first_name;
-		}
-		// Fallback to current user if it's the logged-in user's resource
-		if (isOwnResource(resource) && $currentUser) {
-			return $currentUser.first_name;
-		}
-		return 'Unknown';
-	}
-
-	// Create tag ID to name mapping
-	const tagIdToNameMap = $derived.by(() => {
-		if (!tagsQuery.data) return new Map<string, string>();
-		const tags = (tagsQuery.data as { tags: Array<{ id?: string; name: string }> }).tags;
-		const map = new Map<string, string>();
-		tags.forEach(tag => {
-			// Map by ID if available (normalize to string for comparison)
-			if (tag.id) {
-				map.set(String(tag.id), tag.name);
-			}
-			// Also map by name as fallback
-			map.set(String(tag.name), tag.name);
-		});
-		return map;
-	});
-
-	// Get total resources count (before filtering)
-	const totalResourcesCount = $derived.by(() => {
-		if (!resourcesQuery.data) return 0;
-		const data = resourcesQuery.data as ResourceCollection;
-		return data.resources?.length || 0;
-	});
-
-	// Check if any filters are applied
-	const hasActiveFilters = $derived.by(() => {
-		const hasSearch = searchQuery.trim().length > 0;
-		// Check if all default types are selected (default state)
-		const allDefaultTypesSelected = selectedTypes.size === 3 && 
-			selectedTypes.has(RESOURCE_TYPES.ARTICLE) && 
-			selectedTypes.has(RESOURCE_TYPES.CODE_SNIPPET) && 
-			selectedTypes.has('learning_resource');
-		const hasTypeFilter = !allDefaultTypesSelected;
-		const hasTagFilter = selectedTags.size > 0;
-		return hasSearch || hasTypeFilter || hasTagFilter;
-	});
-
-	// Filter resources
+	// Filter resources to only show current user's resources
 	const filteredResources = $derived.by(() => {
-		if (!resourcesQuery.data) return [];
+		if (!resourcesQuery.data || !currentUserId) return [];
 		const data = resourcesQuery.data as ResourceCollection;
-		let resources = data.resources || [];
+		let resources = (data.resources || []).filter(r => {
+			// Only show resources owned by current user
+			if (!r.user?.id) return false;
+			return String(r.user.id) === String(currentUserId);
+		});
 
 		// Filter by search query
 		if (searchQuery.trim()) {
@@ -205,20 +157,6 @@
 		return resources;
 	});
 
-	// Get all unique tags from resources
-	const allTags = $derived.by(() => {
-		if (!resourcesQuery.data) return [];
-		const data = resourcesQuery.data as ResourceCollection;
-		const tagSet = new Set<string>();
-		(data.resources || []).forEach(r => {
-			r.tags.forEach(tag => {
-				if (tag.id) tagSet.add(String(tag.id));
-				tagSet.add(tag.name);
-			});
-		});
-		return Array.from(tagSet);
-	});
-
 	// Toggle resource type filter
 	function toggleType(type: string) {
 		if (selectedTypes.has(type)) {
@@ -237,55 +175,6 @@
 			selectedTags.add(tagId);
 		}
 		selectedTags = new Set(selectedTags);
-	}
-
-	// Get resource type display name
-	function getResourceTypeName(resource: Resource): string {
-		if (resource.type === RESOURCE_TYPES.ARTICLE) return 'Article';
-		if (resource.type === RESOURCE_TYPES.CODE_SNIPPET) return 'Code Snippet';
-		if (resource.type === RESOURCE_TYPES.BOOK) return 'Book';
-		if (resource.type === RESOURCE_TYPES.COURSE) return 'Course';
-		return 'Learning Resource';
-	}
-
-	// Get resource type icon
-	function getResourceTypeIcon(resource: Resource) {
-		if (resource.type === RESOURCE_TYPES.ARTICLE) return Newspaper;
-		if (resource.type === RESOURCE_TYPES.CODE_SNIPPET) return Code;
-		if (resource.type === RESOURCE_TYPES.BOOK) return BookOpenText;
-		if (resource.type === RESOURCE_TYPES.COURSE) return GraduationCap;
-		return BookOpen;
-	}
-
-	// Format date from created_at timestamp
-	function formatDate(resource: Resource): string {
-		if (!resource.created_at) {
-			return 'Unknown';
-		}
-		
-		const date = new Date(resource.created_at);
-		const now = new Date();
-		
-		// Normalize dates to midnight for accurate day comparison
-		const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-		const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		
-		const diffMs = nowStart.getTime() - dateStart.getTime();
-		const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-		
-		if (diffDays === 0) {
-			return 'Today';
-		} else if (diffDays === 1) {
-			return 'Yesterday';
-		} else {
-			return `${diffDays} days ago`;
-		}
-	}
-
-	// Check if resource is owned by current user
-	function isOwnResource(resource: Resource): boolean {
-		if (!currentUserId || !resource.user.id) return false;
-		return String(resource.user.id) === String(currentUserId);
 	}
 
 	onMount(() => {
@@ -344,73 +233,19 @@
 			<div class="flex gap-8 items-start">
 				<!-- Left Sidebar - Filters -->
 				<aside class="w-[240px] shrink-0">
-					<Card class="bg-white border border-slate-900/12 rounded-2xl p-4 h-[680px]">
-						<div class="flex flex-col gap-[10px]">
-							<h3 class="text-lg font-semibold leading-7 text-slate-900">Filters</h3>
-							
-							<!-- Resource Type Filters -->
-							<div class="flex flex-col gap-[10px]">
-								<p class="text-base font-normal leading-7 text-slate-900">Resource Type</p>
-								<label class="flex gap-2 items-start cursor-pointer">
-									<input
-										type="checkbox"
-										checked={selectedTypes.has('article')}
-										onchange={() => toggleType('article')}
-										class="w-[14px] h-[14px] rounded border border-gray-300 mt-0.5 checked:bg-slate-900 checked:border-slate-900 accent-slate-900"
-									/>
-									<span class="text-sm font-medium leading-[14px] text-black">Articles</span>
-								</label>
-								<label class="flex gap-2 items-start cursor-pointer">
-									<input
-										type="checkbox"
-										checked={selectedTypes.has('code_snippet')}
-										onchange={() => toggleType('code_snippet')}
-										class="w-[14px] h-[14px] rounded border border-gray-300 mt-0.5 checked:bg-slate-900 checked:border-slate-900 accent-slate-900"
-									/>
-									<span class="text-sm font-medium leading-[14px] text-black">Code Snippets</span>
-								</label>
-								<label class="flex gap-2 items-start cursor-pointer">
-									<input
-										type="checkbox"
-										checked={selectedTypes.has('learning_resource')}
-										onchange={() => toggleType('learning_resource')}
-										class="w-[14px] h-[14px] rounded border border-gray-300 mt-0.5 checked:bg-slate-900 checked:border-slate-900 accent-slate-900"
-									/>
-									<span class="text-sm font-medium leading-[14px] text-black">Learning Resources</span>
-								</label>
-							</div>
-
-							<!-- Tags Filters -->
-							<div class="flex flex-col gap-[10px] w-full">
-								<p class="text-base font-normal leading-7 text-slate-900">Tags</p>
-								{#if tagsQuery.data}
-									{@const tags = (tagsQuery.data as { tags: Array<{ id?: string; name: string }> }).tags}
-									<div class="flex flex-wrap gap-2.5">
-										{#each tags as tag}
-											{@const tagId = tag.id || tag.name}
-											{@const isSelected = selectedTags.has(tagId)}
-											<button
-												onclick={() => toggleTag(tagId)}
-												class="bg-white border {isSelected ? 'border-slate-900' : 'border-slate-900/15'} px-2 py-1 rounded-full text-xs font-medium leading-5 text-black h-[22px] flex items-center cursor-pointer hover:border-slate-900/30 transition-colors"
-											>
-												{tag.name}
-											</button>
-										{/each}
-									</div>
-								{:else if tagsQuery.isLoading}
-									<div class="text-sm text-slate-400">Loading tags...</div>
-								{/if}
-							</div>
-						</div>
-					</Card>
+					<FiltersSidebar
+						selectedTypes={selectedTypes}
+						selectedTags={selectedTags}
+						onTypeToggle={toggleType}
+						onTagToggle={toggleTag}
+					/>
 				</aside>
 
 				<!-- Main Content Area -->
 				<div class="flex-1 flex flex-col gap-4">
 					<!-- Header Section -->
 					<div class="flex flex-col gap-[10px]">
-						<h2 class="text-3xl font-semibold leading-9 tracking-[-0.225px] text-slate-900">Discover Resources</h2>
-						<p class="text-xl font-normal leading-7 tracking-[-0.1px] text-slate-900">Explore shared knowledge from our community</p>
+						<h2 class="text-3xl font-semibold leading-9 tracking-[-0.225px] text-slate-900">Your resources</h2>
 						
 						<!-- Search Input -->
 						<div class="flex flex-col gap-1.5">
@@ -421,7 +256,7 @@
 								<Input
 									type="text"
 									bind:value={searchQuery}
-									placeholder="Search resource..."
+									placeholder="Search resource by title or description..."
 									class="pl-12 pr-14 py-2 h-auto rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 bg-white"
 								/>
 							</div>
@@ -431,11 +266,7 @@
 					<!-- Resources Count -->
 					<div class="flex items-center justify-start">
 						<p class="text-base font-normal leading-7 text-slate-900">
-							{#if hasActiveFilters}
-								{filteredResources.length} out of {totalResourcesCount} resource{totalResourcesCount !== 1 ? 's' : ''} showing
-							{:else}
-								{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''} found
-							{/if}
+							{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''} you've added
 						</p>
 					</div>
 
@@ -458,9 +289,9 @@
 								{#each filteredResources as resource}
 									<ResourceCard
 										{resource}
-										showActions={isOwnResource(resource)}
+										showActions={true}
 										showUser={true}
-										userName={isOwnResource(resource) ? 'You' : getUserName(resource)}
+										userName="You"
 										onEdit={handleEditResource}
 										onDelete={handleDeleteResource}
 									/>
@@ -472,7 +303,7 @@
 							<CardContent class="pt-6 text-center">
 								<p class="text-base font-normal leading-7 text-slate-900">No resources found</p>
 								<p class="text-sm font-normal leading-7 text-slate-900/70 mt-2">
-									Be the first to share a resource with the community!
+									Share your first resource to get started!
 								</p>
 							</CardContent>
 						</Card>

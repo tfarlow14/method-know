@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { location } from '../lib/router';
 	import Dashboard from '../pages/Dashboard.svelte';
+	import YourResources from '../pages/YourResources.svelte';
 	import Login from '../pages/Login.svelte';
 	import Signup from '../pages/Signup.svelte';
 
 	const routes: Record<string, any> = {
 		'/': Dashboard,
+		'/your-resources': YourResources,
 		'/login': Login,
 		'/signup': Signup
 	};
