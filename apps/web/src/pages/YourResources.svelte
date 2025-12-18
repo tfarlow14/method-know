@@ -14,6 +14,7 @@
 	import ResourceCard from '../components/ResourceCard.svelte';
 	import FiltersSidebar from '../components/FiltersSidebar.svelte';
 	import DeleteResourceModal from '../components/DeleteResourceModal.svelte';
+	import SuccessBanner from '../components/SuccessBanner.svelte';
 
 	let searchQuery = $state('');
 	let selectedTypes = $state<Set<string>>(new Set([RESOURCE_TYPES.ARTICLE, RESOURCE_TYPES.CODE_SNIPPET, 'learning_resource']));
@@ -24,6 +25,10 @@
 	let editingResource: Resource | null = $state(null);
 	let deletingResource: Resource | null = $state(null);
 	let isDeleteModalOpen = $state(false);
+	let showSuccessBanner = $state(false);
+	let successBannerMessage = $state('');
+	let successBannerActionLabel = $state<string | undefined>(undefined);
+	let successBannerActionUrl = $state<string | undefined>(undefined);
 	
 	// Get current user from Svelte store
 	const currentUserId = $derived($currentUser?.id || null);
@@ -42,6 +47,19 @@
 	function handleCloseShareResource() {
 		isShareResourceOpen = false;
 		editingResource = null;
+	}
+
+	function handleResourceSuccess(isEdit: boolean) {
+		if (isEdit) {
+			successBannerMessage = 'Resource updated!';
+			successBannerActionLabel = undefined;
+			successBannerActionUrl = undefined;
+		} else {
+			successBannerMessage = 'New resource successfully added!';
+			successBannerActionLabel = undefined;
+			successBannerActionUrl = undefined;
+		}
+		showSuccessBanner = true;
 	}
 
 	function handleEditResource(resource: Resource) {
@@ -230,84 +248,90 @@
 	<!-- Main Content -->
 	<main class="max-w-[1440px] mx-auto px-[52px] py-0">
 		<div class="pt-[74px] pb-0">
-			<div class="flex gap-8 items-start">
-				<!-- Left Sidebar - Filters -->
-				<aside class="w-[240px] shrink-0">
-					<FiltersSidebar
-						selectedTypes={selectedTypes}
-						selectedTags={selectedTags}
-						onTypeToggle={toggleType}
-						onTagToggle={toggleTag}
-					/>
-				</aside>
+			<div class="flex flex-col">
+				<!-- Header Section -->
+				<div class="flex flex-col gap-[10px]">
+					<h2 class="text-3xl font-semibold leading-9 tracking-[-0.225px] text-slate-900 text-left">Your resources</h2>
+				</div>
+				
+				<!-- Search Input -->
+				<div class="flex flex-col gap-[6px] mt-[10px]">
+					<div class="relative flex-1">
+						<div class="absolute left-3 top-1/2 -translate-y-1/2">
+							<Search class="w-6 h-6 text-slate-400" />
+						</div>
+						<Input
+							type="text"
+							bind:value={searchQuery}
+							placeholder="Search resource by title or description..."
+							class="pl-12 pr-14 py-2 h-auto rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 bg-white"
+						/>
+					</div>
+				</div>
 
-				<!-- Main Content Area -->
-				<div class="flex-1 flex flex-col gap-4">
-					<!-- Header Section -->
-					<div class="flex flex-col gap-[10px]">
-						<h2 class="text-3xl font-semibold leading-9 tracking-[-0.225px] text-slate-900">Your resources</h2>
-						
-						<!-- Search Input -->
-						<div class="flex flex-col gap-1.5">
-							<div class="relative flex-1">
-								<div class="absolute left-3 top-1/2 -translate-y-1/2">
-									<Search class="w-6 h-6 text-slate-400" />
+				<!-- Spacer between search and filters/content -->
+				<div class="h-[44px]"></div>
+
+				<!-- Filters and Content Layout -->
+				<div class="flex gap-[32px] items-start">
+					<!-- Left Sidebar - Filters -->
+					<aside class="w-[240px] shrink-0">
+						<FiltersSidebar
+							selectedTypes={selectedTypes}
+							selectedTags={selectedTags}
+							onTypeToggle={toggleType}
+							onTagToggle={toggleTag}
+						/>
+					</aside>
+
+					<!-- Main Content Area -->
+					<div class="flex-1 flex flex-col gap-[16px]">
+						<!-- Resources Count -->
+						<div class="flex items-center justify-start">
+							<p class="text-base font-normal leading-7 text-slate-900">
+								{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''} you've added
+							</p>
+						</div>
+
+						<!-- Resources Grid -->
+						{#if resourcesQuery.isLoading}
+							<div class="flex justify-center items-center py-12">
+								<Loader2 class="h-8 w-8 animate-spin text-slate-900" />
+							</div>
+						{:else if resourcesQuery.isError}
+							<Card class="border-red-500">
+								<CardContent class="pt-6">
+									<p class="text-sm font-medium text-red-800">
+										Error loading resources: {resourcesQuery.error?.message || 'Unknown error'}
+									</p>
+								</CardContent>
+							</Card>
+						{:else if filteredResources.length > 0}
+							<div class="h-[649px] overflow-y-auto scrollbar-hide pb-[31px]">
+								<div class="grid grid-cols-2 gap-4 items-start">
+									{#each filteredResources as resource}
+										<ResourceCard
+											{resource}
+											showActions={true}
+											showUser={true}
+											userName="You"
+											onEdit={handleEditResource}
+											onDelete={handleDeleteResource}
+										/>
+									{/each}
 								</div>
-								<Input
-									type="text"
-									bind:value={searchQuery}
-									placeholder="Search resource by title or description..."
-									class="pl-12 pr-14 py-2 h-auto rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 bg-white"
-								/>
 							</div>
-						</div>
+						{:else}
+							<Card>
+								<CardContent class="pt-6 text-center">
+									<p class="text-base font-normal leading-7 text-slate-900">No resources found</p>
+									<p class="text-sm font-normal leading-7 text-slate-900/70 mt-2">
+										Share your first resource to get started!
+									</p>
+								</CardContent>
+							</Card>
+						{/if}
 					</div>
-
-					<!-- Resources Count -->
-					<div class="flex items-center justify-start">
-						<p class="text-base font-normal leading-7 text-slate-900">
-							{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''} you've added
-						</p>
-					</div>
-
-					<!-- Resources Grid -->
-					{#if resourcesQuery.isLoading}
-						<div class="flex justify-center items-center py-12">
-							<Loader2 class="h-8 w-8 animate-spin text-slate-900" />
-						</div>
-					{:else if resourcesQuery.isError}
-						<Card class="border-red-500">
-							<CardContent class="pt-6">
-								<p class="text-sm font-medium text-red-800">
-									Error loading resources: {resourcesQuery.error?.message || 'Unknown error'}
-								</p>
-							</CardContent>
-						</Card>
-					{:else if filteredResources.length > 0}
-						<div class="h-[649px] overflow-y-auto">
-							<div class="grid grid-cols-2 gap-4 items-start">
-								{#each filteredResources as resource}
-									<ResourceCard
-										{resource}
-										showActions={true}
-										showUser={true}
-										userName="You"
-										onEdit={handleEditResource}
-										onDelete={handleDeleteResource}
-									/>
-								{/each}
-							</div>
-						</div>
-					{:else}
-						<Card>
-							<CardContent class="pt-6 text-center">
-								<p class="text-base font-normal leading-7 text-slate-900">No resources found</p>
-								<p class="text-sm font-normal leading-7 text-slate-900/70 mt-2">
-									Share your first resource to get started!
-								</p>
-							</CardContent>
-						</Card>
-					{/if}
 				</div>
 			</div>
 		</div>
@@ -318,6 +342,7 @@
 		isOpen={isShareResourceOpen} 
 		onClose={handleCloseShareResource}
 		resource={editingResource}
+		onSuccess={handleResourceSuccess}
 	/>
 
 	<!-- Delete Resource Modal -->
@@ -327,6 +352,15 @@
 		onClose={handleCloseDeleteModal}
 		onConfirm={handleConfirmDelete}
 		isDeleting={deleteResourceMutation.isPending}
+	/>
+
+	<!-- Success Banner -->
+	<SuccessBanner
+		isOpen={showSuccessBanner}
+		message={successBannerMessage}
+		actionLabel={successBannerActionLabel}
+		actionUrl={successBannerActionUrl}
+		onClose={() => showSuccessBanner = false}
 	/>
 </div>
 

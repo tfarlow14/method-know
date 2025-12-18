@@ -42,19 +42,27 @@
 		const date = new Date(resource.created_at);
 		const now = new Date();
 		
-		// Normalize dates to midnight for accurate day comparison
+		// Get date strings in YYYY-MM-DD format for accurate day comparison
+		const dateStr = date.toLocaleDateString('en-CA'); // Returns YYYY-MM-DD format
+		const nowStr = now.toLocaleDateString('en-CA');
+		
+		if (dateStr === nowStr) {
+			return 'Today';
+		}
+		
+		// Calculate difference in days
 		const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 		const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		
 		const diffMs = nowStart.getTime() - dateStart.getTime();
 		const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 		
-		if (diffDays === 0) {
-			return 'Today';
-		} else if (diffDays === 1) {
+		if (diffDays === 1) {
 			return 'Yesterday';
-		} else {
+		} else if (diffDays > 1) {
 			return `${diffDays} days ago`;
+		} else {
+			// If diffDays is 0 or negative (same day or future), show as "Today"
+			return 'Today';
 		}
 	}
 </script>
@@ -121,18 +129,18 @@
 						</div>
 					{/if}
 				</div>
-
-				<!-- Tags -->
-				{#if resource.tags && resource.tags.length > 0}
-					<div class="flex flex-wrap gap-2.5 pt-1 pb-2">
-						{#each resource.tags as tag}
-							<span class="bg-white border border-slate-900/15 px-2 py-1 rounded-full text-xs font-medium leading-5 text-black h-[22px] flex items-center">
-								{tag.name}
-							</span>
-						{/each}
-					</div>
-				{/if}
 			</div>
+
+			<!-- Tags - bottom aligned with space above -->
+			{#if resource.tags && resource.tags.length > 0}
+				<div class="flex flex-wrap gap-2.5 pt-1 pb-2 shrink-0">
+					{#each resource.tags as tag}
+						<span class="bg-white border border-slate-900/15 px-2 py-1 rounded-full text-xs font-medium leading-5 text-black h-[22px] flex items-center">
+							{tag.name}
+						</span>
+					{/each}
+				</div>
+			{/if}
 
 			<!-- Footer with user and date - fixed to bottom -->
 			{#if showUser}

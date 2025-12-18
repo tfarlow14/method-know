@@ -13,6 +13,8 @@
 	import UserDropdown from '../components/UserDropdown.svelte';
 	import ResourceCard from '../components/ResourceCard.svelte';
 	import DeleteResourceModal from '../components/DeleteResourceModal.svelte';
+	import SuccessBanner from '../components/SuccessBanner.svelte';
+	import FiltersSidebar from '../components/FiltersSidebar.svelte';
 
 	let searchQuery = $state('');
 	let selectedTypes = $state<Set<string>>(new Set([RESOURCE_TYPES.ARTICLE, RESOURCE_TYPES.CODE_SNIPPET, 'learning_resource']));
@@ -23,6 +25,10 @@
 	let editingResource: Resource | null = $state(null);
 	let deletingResource: Resource | null = $state(null);
 	let isDeleteModalOpen = $state(false);
+	let showSuccessBanner = $state(false);
+	let successBannerMessage = $state('');
+	let successBannerActionLabel = $state<string | undefined>(undefined);
+	let successBannerActionUrl = $state<string | undefined>(undefined);
 	
 	// Get current user from Svelte store
 	const currentUserId = $derived($currentUser?.id || null);
@@ -41,6 +47,19 @@
 	function handleCloseShareResource() {
 		isShareResourceOpen = false;
 		editingResource = null;
+	}
+
+	function handleResourceSuccess(isEdit: boolean) {
+		if (isEdit) {
+			successBannerMessage = 'Resource updated!';
+			successBannerActionLabel = undefined;
+			successBannerActionUrl = undefined;
+		} else {
+			successBannerMessage = 'New resource successfully added!';
+			successBannerActionLabel = 'View Your Resources';
+			successBannerActionUrl = '/your-resources';
+		}
+		showSuccessBanner = true;
 	}
 
 	function handleEditResource(resource: Resource) {
@@ -266,19 +285,27 @@
 		const date = new Date(resource.created_at);
 		const now = new Date();
 		
-		// Normalize dates to midnight for accurate day comparison
+		// Get date strings in YYYY-MM-DD format for accurate day comparison
+		const dateStr = date.toLocaleDateString('en-CA'); // Returns YYYY-MM-DD format
+		const nowStr = now.toLocaleDateString('en-CA');
+		
+		if (dateStr === nowStr) {
+			return 'Today';
+		}
+		
+		// Calculate difference in days
 		const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 		const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		
 		const diffMs = nowStart.getTime() - dateStart.getTime();
 		const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 		
-		if (diffDays === 0) {
-			return 'Today';
-		} else if (diffDays === 1) {
+		if (diffDays === 1) {
 			return 'Yesterday';
-		} else {
+		} else if (diffDays > 1) {
 			return `${diffDays} days ago`;
+		} else {
+			// If diffDays is 0 or negative (same day or future), show as "Today"
+			return 'Today';
 		}
 	}
 
@@ -341,142 +368,95 @@
 	<!-- Main Content -->
 	<main class="max-w-[1440px] mx-auto px-[52px] py-0">
 		<div class="pt-[74px] pb-0">
-			<div class="flex gap-8 items-start">
-				<!-- Left Sidebar - Filters -->
-				<aside class="w-[240px] shrink-0">
-					<Card class="bg-white border border-slate-900/12 rounded-2xl p-4 h-[680px]">
-						<div class="flex flex-col gap-[10px]">
-							<h3 class="text-lg font-semibold leading-7 text-slate-900">Filters</h3>
-							
-							<!-- Resource Type Filters -->
-							<div class="flex flex-col gap-[10px]">
-								<p class="text-base font-normal leading-7 text-slate-900">Resource Type</p>
-								<label class="flex gap-2 items-start cursor-pointer">
-									<input
-										type="checkbox"
-										checked={selectedTypes.has('article')}
-										onchange={() => toggleType('article')}
-										class="w-[14px] h-[14px] rounded border border-gray-300 mt-0.5 checked:bg-slate-900 checked:border-slate-900 accent-slate-900"
-									/>
-									<span class="text-sm font-medium leading-[14px] text-black">Articles</span>
-								</label>
-								<label class="flex gap-2 items-start cursor-pointer">
-									<input
-										type="checkbox"
-										checked={selectedTypes.has('code_snippet')}
-										onchange={() => toggleType('code_snippet')}
-										class="w-[14px] h-[14px] rounded border border-gray-300 mt-0.5 checked:bg-slate-900 checked:border-slate-900 accent-slate-900"
-									/>
-									<span class="text-sm font-medium leading-[14px] text-black">Code Snippets</span>
-								</label>
-								<label class="flex gap-2 items-start cursor-pointer">
-									<input
-										type="checkbox"
-										checked={selectedTypes.has('learning_resource')}
-										onchange={() => toggleType('learning_resource')}
-										class="w-[14px] h-[14px] rounded border border-gray-300 mt-0.5 checked:bg-slate-900 checked:border-slate-900 accent-slate-900"
-									/>
-									<span class="text-sm font-medium leading-[14px] text-black">Learning Resources</span>
-								</label>
-							</div>
+			<div class="flex flex-col">
+				<!-- Header Section -->
+				<div class="flex flex-col gap-[10px]">
+					<h2 class="text-3xl font-semibold leading-9 tracking-[-0.225px] text-slate-900 text-left">Discover Resources</h2>
+					<p class="text-xl font-normal leading-7 tracking-[-0.1px] text-slate-900 text-left">Explore shared knowledge from our community</p>
+				</div>
+				
+				<!-- Search Input -->
+				<div class="flex flex-col gap-[6px] mt-[10px]">
+					<div class="relative flex-1">
+						<div class="absolute left-3 top-1/2 -translate-y-1/2">
+							<Search class="w-6 h-6 text-slate-400" />
+						</div>
+						<Input
+							type="text"
+							bind:value={searchQuery}
+							placeholder="Search resource..."
+							class="pl-12 pr-14 py-2 h-auto rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 bg-white"
+						/>
+					</div>
+				</div>
 
-							<!-- Tags Filters -->
-							<div class="flex flex-col gap-[10px] w-full">
-								<p class="text-base font-normal leading-7 text-slate-900">Tags</p>
-								{#if tagsQuery.data}
-									{@const tags = (tagsQuery.data as { tags: Array<{ id?: string; name: string }> }).tags}
-									<div class="flex flex-wrap gap-2.5">
-										{#each tags as tag}
-											{@const tagId = tag.id || tag.name}
-											{@const isSelected = selectedTags.has(tagId)}
-											<button
-												onclick={() => toggleTag(tagId)}
-												class="bg-white border {isSelected ? 'border-slate-900' : 'border-slate-900/15'} px-2 py-1 rounded-full text-xs font-medium leading-5 text-black h-[22px] flex items-center cursor-pointer hover:border-slate-900/30 transition-colors"
-											>
-												{tag.name}
-											</button>
-										{/each}
-									</div>
-								{:else if tagsQuery.isLoading}
-									<div class="text-sm text-slate-400">Loading tags...</div>
+				<!-- Spacer between search and filters/content -->
+				<div class="h-[44px]"></div>
+
+				<!-- Filters and Content Layout -->
+				<div class="flex gap-[32px] items-start">
+					<!-- Left Sidebar - Filters -->
+					<aside class="w-[240px] shrink-0">
+						<FiltersSidebar
+							selectedTypes={selectedTypes}
+							selectedTags={selectedTags}
+							onTypeToggle={toggleType}
+							onTagToggle={toggleTag}
+						/>
+					</aside>
+
+					<!-- Main Content Area -->
+					<div class="flex-1 flex flex-col gap-[16px]">
+						<!-- Resources Count -->
+						<div class="flex items-center justify-start">
+							<p class="text-base font-normal leading-7 text-slate-900">
+								{#if hasActiveFilters}
+									{filteredResources.length} out of {totalResourcesCount} resource{totalResourcesCount !== 1 ? 's' : ''} showing
+								{:else}
+									{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''} found
 								{/if}
-							</div>
+							</p>
 						</div>
-					</Card>
-				</aside>
 
-				<!-- Main Content Area -->
-				<div class="flex-1 flex flex-col gap-4">
-					<!-- Header Section -->
-					<div class="flex flex-col gap-[10px]">
-						<h2 class="text-3xl font-semibold leading-9 tracking-[-0.225px] text-slate-900">Discover Resources</h2>
-						<p class="text-xl font-normal leading-7 tracking-[-0.1px] text-slate-900">Explore shared knowledge from our community</p>
-						
-						<!-- Search Input -->
-						<div class="flex flex-col gap-1.5">
-							<div class="relative flex-1">
-								<div class="absolute left-3 top-1/2 -translate-y-1/2">
-									<Search class="w-6 h-6 text-slate-400" />
+						<!-- Resources Grid -->
+						{#if resourcesQuery.isLoading}
+							<div class="flex justify-center items-center py-12">
+								<Loader2 class="h-8 w-8 animate-spin text-slate-900" />
+							</div>
+						{:else if resourcesQuery.isError}
+							<Card class="border-red-500">
+								<CardContent class="pt-6">
+									<p class="text-sm font-medium text-red-800">
+										Error loading resources: {resourcesQuery.error?.message || 'Unknown error'}
+									</p>
+								</CardContent>
+							</Card>
+						{:else if filteredResources.length > 0}
+							<div class="h-[649px] overflow-y-auto scrollbar-hide pb-[31px]">
+								<div class="grid grid-cols-2 gap-4 items-start">
+									{#each filteredResources as resource}
+										<ResourceCard
+											{resource}
+											showActions={isOwnResource(resource)}
+											showUser={true}
+											userName={isOwnResource(resource) ? 'You' : getUserName(resource)}
+											onEdit={handleEditResource}
+											onDelete={handleDeleteResource}
+										/>
+									{/each}
 								</div>
-								<Input
-									type="text"
-									bind:value={searchQuery}
-									placeholder="Search resource..."
-									class="pl-12 pr-14 py-2 h-auto rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 bg-white"
-								/>
 							</div>
-						</div>
+						{:else}
+							<Card>
+								<CardContent class="pt-6 text-center">
+									<p class="text-base font-normal leading-7 text-slate-900">No resources found</p>
+									<p class="text-sm font-normal leading-7 text-slate-900/70 mt-2">
+										Be the first to share a resource with the community!
+									</p>
+								</CardContent>
+							</Card>
+						{/if}
 					</div>
-
-					<!-- Resources Count -->
-					<div class="flex items-center justify-start">
-						<p class="text-base font-normal leading-7 text-slate-900">
-							{#if hasActiveFilters}
-								{filteredResources.length} out of {totalResourcesCount} resource{totalResourcesCount !== 1 ? 's' : ''} showing
-							{:else}
-								{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''} found
-							{/if}
-						</p>
-					</div>
-
-					<!-- Resources Grid -->
-					{#if resourcesQuery.isLoading}
-						<div class="flex justify-center items-center py-12">
-							<Loader2 class="h-8 w-8 animate-spin text-slate-900" />
-						</div>
-					{:else if resourcesQuery.isError}
-						<Card class="border-red-500">
-							<CardContent class="pt-6">
-								<p class="text-sm font-medium text-red-800">
-									Error loading resources: {resourcesQuery.error?.message || 'Unknown error'}
-								</p>
-							</CardContent>
-						</Card>
-					{:else if filteredResources.length > 0}
-						<div class="h-[649px] overflow-y-auto">
-							<div class="grid grid-cols-2 gap-4 items-start">
-								{#each filteredResources as resource}
-									<ResourceCard
-										{resource}
-										showActions={isOwnResource(resource)}
-										showUser={true}
-										userName={isOwnResource(resource) ? 'You' : getUserName(resource)}
-										onEdit={handleEditResource}
-										onDelete={handleDeleteResource}
-									/>
-								{/each}
-							</div>
-						</div>
-					{:else}
-						<Card>
-							<CardContent class="pt-6 text-center">
-								<p class="text-base font-normal leading-7 text-slate-900">No resources found</p>
-								<p class="text-sm font-normal leading-7 text-slate-900/70 mt-2">
-									Be the first to share a resource with the community!
-								</p>
-							</CardContent>
-						</Card>
-					{/if}
 				</div>
 			</div>
 		</div>
@@ -487,6 +467,7 @@
 		isOpen={isShareResourceOpen} 
 		onClose={handleCloseShareResource}
 		resource={editingResource}
+		onSuccess={handleResourceSuccess}
 	/>
 
 	<!-- Delete Resource Modal -->
@@ -496,6 +477,15 @@
 		onClose={handleCloseDeleteModal}
 		onConfirm={handleConfirmDelete}
 		isDeleting={deleteResourceMutation.isPending}
+	/>
+
+	<!-- Success Banner -->
+	<SuccessBanner
+		isOpen={showSuccessBanner}
+		message={successBannerMessage}
+		actionLabel={successBannerActionLabel}
+		actionUrl={successBannerActionUrl}
+		onClose={() => showSuccessBanner = false}
 	/>
 </div>
 

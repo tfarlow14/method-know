@@ -11,9 +11,10 @@
 		isOpen?: boolean;
 		onClose?: () => void;
 		resource?: Resource | null;
+		onSuccess?: (isEdit: boolean) => void;
 	}
 
-	let { isOpen = $bindable(false), onClose = () => {}, resource = null }: Props = $props();
+	let { isOpen = $bindable(false), onClose = () => {}, resource = null, onSuccess }: Props = $props();
 
 	const queryClient = useQueryClient();
 
@@ -68,6 +69,8 @@
 			queryClient.invalidateQueries({ queryKey: ['tags'] });
 			// Close modal
 			onClose();
+			// Notify parent of success
+			onSuccess?.(false);
 		}
 	}));
 
@@ -90,6 +93,8 @@
 			queryClient.invalidateQueries({ queryKey: ['tags'] });
 			// Close modal
 			onClose();
+			// Notify parent of success
+			onSuccess?.(true);
 		}
 	}));
 
