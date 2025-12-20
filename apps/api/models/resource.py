@@ -42,13 +42,15 @@ class CodeSnippetResource(ResourceBase):
     code: str
 
 class LearningResourceBase(ResourceBase):
-    pass
+    author: Optional[str] = None
 
 class BookResource(LearningResourceBase):
     type: Literal["book"] = "book"
+    author: Optional[str] = None
 
 class CourseResource(LearningResourceBase):
     type: Literal["course"] = "course"
+    author: Optional[str] = None
 
 class ArticleResourceInput(ResourceBaseInput):
     type: Literal["article"] = "article"
@@ -60,9 +62,11 @@ class CodeSnippetResourceInput(ResourceBaseInput):
 
 class BookResourceInput(ResourceBaseInput):
     type: Literal["book"] = "book"
+    author: Optional[str] = None
 
 class CourseResourceInput(ResourceBaseInput):
     type: Literal["course"] = "course"
+    author: Optional[str] = None
 
 ResourceModel = Annotated[
     Union[ArticleResource, CodeSnippetResource, BookResource, CourseResource],
@@ -82,6 +86,7 @@ class Resource(Document):
     tags: list[Link["Tag"]] = Field(default_factory=list)
     url: Optional[str] = None
     code: Optional[str] = None
+    author: Optional[str] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     
     class Settings:

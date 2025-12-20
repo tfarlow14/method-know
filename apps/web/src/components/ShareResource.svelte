@@ -6,6 +6,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { X } from '@lucide/svelte';
 	import { Loader2 } from '@lucide/svelte';
+	import CodeEditor from './CodeEditor.svelte';
 
 	interface Props {
 		isOpen?: boolean;
@@ -24,6 +25,7 @@
 	let description = $state('');
 	let url = $state('');
 	let code = $state('');
+	let author = $state('');
 	let tagInput = $state('');
 	let selectedTags = $state<Array<{ id?: string; name: string; isNew?: boolean }>>([]);
 	let isTagDropdownOpen = $state(false);
@@ -84,6 +86,7 @@
 			description = '';
 			url = '';
 			code = '';
+			author = '';
 			tagInput = '';
 			tagSearchQuery = '';
 			selectedTags = [];
@@ -196,11 +199,12 @@
 					code: code.trim(),
 					tag_ids: tagIds
 				};
-			} else if (resourceType === RESOURCE_TYPES.BOOK) {
+			} else 			if (resourceType === RESOURCE_TYPES.BOOK) {
 				resourceInput = {
 					type: RESOURCE_TYPES.BOOK,
 					title: title.trim(),
 					description: description.trim(),
+					author: author.trim() || undefined,
 					tag_ids: tagIds
 				};
 			} else {
@@ -208,7 +212,7 @@
 					type: RESOURCE_TYPES.COURSE,
 					title: title.trim(),
 					description: description.trim(),
-					url: url.trim() || undefined,
+					author: author.trim() || undefined,
 					tag_ids: tagIds
 				};
 			}
@@ -235,6 +239,7 @@
 		description = '';
 		url = '';
 		code = '';
+		author = '';
 		tagInput = '';
 		tagSearchQuery = '';
 		selectedTags = [];
@@ -282,6 +287,11 @@
 				code = resource.code || '';
 			}
 			
+			// Populate author for Book and Course
+			if ((resource.type === RESOURCE_TYPES.BOOK || resource.type === RESOURCE_TYPES.COURSE) && 'author' in resource) {
+				author = resource.author || '';
+			}
+			
 			// Populate tags from resource
 			selectedTags = resource.tags.map(tag => ({
 				id: tag.id,
@@ -294,8 +304,10 @@
 			description = '';
 			url = '';
 			code = '';
+			author = '';
 			selectedTags = [];
 			tagSearchQuery = '';
+			isTagDropdownOpen = false;
 		}
 	});
 </script>
@@ -389,6 +401,22 @@
 					class="w-full rounded-md border border-slate-300 placeholder:text-slate-400 text-base leading-6 pl-3 pr-3 py-2 bg-white box-border resize-none focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
 				></textarea>
 			</div>
+
+			<!-- Author (for Book and Course) -->
+			{#if resourceType === RESOURCE_TYPES.BOOK || resourceType === RESOURCE_TYPES.COURSE}
+				<div class="flex flex-col gap-1.5 shrink-0">
+					<Label for="author" class="text-sm font-medium leading-5 text-slate-900">
+						Author
+					</Label>
+					<Input
+						id="author"
+						type="text"
+						bind:value={author}
+						placeholder="Enter author name"
+						class="h-auto w-full rounded-md border-slate-300 placeholder:text-slate-400 text-base leading-6 pl-3 pr-3 py-2 bg-white box-border"
+					/>
+				</div>
+			{/if}
 
 			<!-- Tags -->
 			<div class="flex flex-col gap-1.5 shrink-0 tag-dropdown-container relative">
@@ -493,14 +521,14 @@
 					<Label for="code" class="text-sm font-medium leading-5 text-slate-900">
 						Code
 					</Label>
-					<textarea
-						id="code"
-						bind:value={code}
-						placeholder="Paste your code here"
-						required
-						rows="8"
-						class="w-full rounded-md border border-slate-300 placeholder:text-slate-400 text-sm leading-6 pl-3 pr-3 py-2 bg-white box-border resize-none font-mono focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-					></textarea>
+					<div class="h-[300px] w-full">
+						<CodeEditor
+							bind:code={code}
+							language="auto"
+							theme="dark"
+							readOnly={false}
+						/>
+					</div>
 				</div>
 			{/if}
 

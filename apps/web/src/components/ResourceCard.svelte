@@ -11,9 +11,10 @@
 		userName?: string;
 		onEdit?: (resource: Resource) => void;
 		onDelete?: (resource: Resource) => void;
+		onClick?: (resource: Resource) => void;
 	}
 
-	let { resource, showActions = false, showUser = true, userName, onEdit, onDelete }: Props = $props();
+	let { resource, showActions = false, showUser = true, userName, onEdit, onDelete, onClick }: Props = $props();
 
 	// Get resource type display name
 	function getResourceTypeName(resource: Resource): string {
@@ -67,19 +68,22 @@
 	}
 </script>
 
-<Card class="bg-white border border-slate-900/12 rounded-2xl p-4 flex flex-col h-full">
+<Card class="bg-white border border-slate-900/12 rounded-2xl p-4 flex flex-col h-full cursor-pointer hover:shadow-md transition-shadow" onclick={() => onClick?.(resource)} onkeydown={(e) => e.key === 'Enter' && onClick?.(resource)} role="button" tabindex="0">
 	<CardContent class="pt-2.5 pb-0 px-0 flex flex-col flex-1 min-h-0">
 		<div class="flex flex-col gap-[10px] h-full">
 			<!-- Header with type badge and actions -->
 			<div class="flex items-center justify-between shrink-0">
 				<div class="bg-white border border-slate-900/15 rounded-full flex gap-2 h-7 items-center justify-center px-2">
-					<svelte:component this={getResourceTypeIcon(resource)} class="w-5 h-5 text-black" />
+					{#if getResourceTypeIcon(resource)}
+						{@const TypeIcon = getResourceTypeIcon(resource)}
+						<TypeIcon class="w-5 h-5 text-black" />
+					{/if}
 					<span class="text-sm font-medium leading-[14px] text-black">
 						{getResourceTypeName(resource)}
 					</span>
 				</div>
 				{#if showActions}
-					<div class="flex gap-2.5 items-center">
+					<div class="flex gap-2.5 items-center" role="group" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 						<button 
 							class="w-6 h-6 cursor-pointer"
 							onclick={() => onEdit?.(resource)}
@@ -116,15 +120,16 @@
 							target="_blank"
 							rel="noopener noreferrer"
 							class="flex gap-2 items-center text-base font-bold leading-7 text-slate-900 underline"
+							onclick={(e) => e.stopPropagation()}
 						>
 							<ExternalLink class="w-5 h-5" />
 							View article
 						</a>
-					{:else if (resource.type === RESOURCE_TYPES.BOOK || resource.type === RESOURCE_TYPES.COURSE) && 'author' in resource}
+					{:else if (resource.type === RESOURCE_TYPES.BOOK || resource.type === RESOURCE_TYPES.COURSE) && 'author' in resource && resource.author}
 						<div class="flex gap-2 items-center">
 							<BookOpenText class="w-5 h-5 text-slate-900" />
 							<span class="text-base font-normal leading-7 text-slate-900">
-								by {(resource as any).author || 'Unknown'}
+								by {resource.author}
 							</span>
 						</div>
 					{/if}

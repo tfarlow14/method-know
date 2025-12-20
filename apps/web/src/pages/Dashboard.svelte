@@ -15,6 +15,7 @@
 	import DeleteResourceModal from '../components/DeleteResourceModal.svelte';
 	import SuccessBanner from '../components/SuccessBanner.svelte';
 	import FiltersSidebar from '../components/FiltersSidebar.svelte';
+	import ResourceDetailsModal from '../components/ResourceDetailsModal.svelte';
 
 	let searchQuery = $state('');
 	let selectedTypes = $state<Set<string>>(new Set([RESOURCE_TYPES.ARTICLE, RESOURCE_TYPES.CODE_SNIPPET, 'learning_resource']));
@@ -25,6 +26,8 @@
 	let editingResource: Resource | null = $state(null);
 	let deletingResource: Resource | null = $state(null);
 	let isDeleteModalOpen = $state(false);
+	let viewingResource: Resource | null = $state(null);
+	let isDetailsModalOpen = $state(false);
 	let showSuccessBanner = $state(false);
 	let successBannerMessage = $state('');
 	let successBannerActionLabel = $state<string | undefined>(undefined);
@@ -70,6 +73,16 @@
 	function handleDeleteResource(resource: Resource) {
 		deletingResource = resource;
 		isDeleteModalOpen = true;
+	}
+
+	function handleViewResource(resource: Resource) {
+		viewingResource = resource;
+		isDetailsModalOpen = true;
+	}
+
+	function handleCloseDetailsModal() {
+		isDetailsModalOpen = false;
+		viewingResource = null;
 	}
 
 	function handleCloseDeleteModal() {
@@ -442,6 +455,7 @@
 											userName={isOwnResource(resource) ? 'You' : getUserName(resource)}
 											onEdit={handleEditResource}
 											onDelete={handleDeleteResource}
+											onClick={handleViewResource}
 										/>
 									{/each}
 								</div>
@@ -486,6 +500,13 @@
 		actionLabel={successBannerActionLabel}
 		actionUrl={successBannerActionUrl}
 		onClose={() => showSuccessBanner = false}
+	/>
+
+	<!-- Resource Details Modal -->
+	<ResourceDetailsModal
+		isOpen={isDetailsModalOpen}
+		resource={viewingResource}
+		onClose={handleCloseDetailsModal}
 	/>
 </div>
 

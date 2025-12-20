@@ -29,7 +29,8 @@ async def create_resource(
         user=current_user,
         tags=tag_links,
         url=resource_dict.get("url"),
-        code=resource_dict.get("code")
+        code=resource_dict.get("code"),
+        author=resource_dict.get("author")
     )
     await new_resource.insert()
     await new_resource.fetch_all_links()
@@ -69,6 +70,9 @@ async def update_resource(
     if not existing_resource:
         raise HTTPException(status_code=404, detail="Resource not found")
     
+    # Fetch the user link to ensure it's loaded
+    await existing_resource.fetch_all_links()
+    
     # Check if user owns the resource
     if str(existing_resource.user.id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="You can only update your own resources")
@@ -91,6 +95,7 @@ async def update_resource(
     existing_resource.tags = tag_links
     existing_resource.url = resource_dict.get("url")
     existing_resource.code = resource_dict.get("code")
+    existing_resource.author = resource_dict.get("author")
     
     await existing_resource.save()
     await existing_resource.fetch_all_links()
@@ -149,8 +154,8 @@ async def _resource_doc_to_model(resource: Resource) -> ResourceModel:
     elif resource.type == "code_snippet":
         return CodeSnippetResource(**base_data, code=resource.code or "")
     elif resource.type == "book":
-        return BookResource(**base_data)
+        return BookResource(**base_data, author=resource.author)
     elif resource.type == "course":
-        return CourseResource(**base_data)
+        return CourseResource(**base_data, author=resource.author)
     else:
         raise ValueError(f"Unknown resource type: {resource.type}")

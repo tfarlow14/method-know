@@ -138,10 +138,12 @@ export interface CodeSnippetResource extends ResourceBase {
 
 export interface BookResource extends ResourceBase {
 	type: typeof RESOURCE_TYPES.BOOK;
+	author?: string;
 }
 
 export interface CourseResource extends ResourceBase {
 	type: typeof RESOURCE_TYPES.COURSE;
+	author?: string;
 }
 
 export type Resource = ArticleResource | CodeSnippetResource | BookResource | CourseResource;
