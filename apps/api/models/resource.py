@@ -1,17 +1,13 @@
-from typing import Optional, Union, Annotated, Literal, TYPE_CHECKING
+from typing import Optional, Union, Literal, TYPE_CHECKING, Annotated
 from datetime import datetime
-from pydantic import BaseModel, Field, BeforeValidator
-from beanie import Document, Link
-
-# Helper for MongoDB ObjectId
-PyObjectId = Annotated[str, BeforeValidator(str)]
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from models.user import UserResponse
     from models.tag import TagModel
 
 class ResourceBase(BaseModel):
-    id: Optional[PyObjectId] = Field(default=None)
+    id: Optional[str] = Field(default=None)
     title: str
     description: str
     user: "UserResponse"
@@ -26,7 +22,7 @@ class ResourceBase(BaseModel):
 class ResourceBaseInput(BaseModel):
     title: str
     description: str
-    tag_ids: list[PyObjectId] = Field(default_factory=list)
+    tag_ids: list[str] = Field(default_factory=list)
     
     model_config = {
         "populate_by_name": True,
@@ -78,20 +74,66 @@ ResourceModelInput = Annotated[
     Field(discriminator="type")
 ]
 
-class Resource(Document):
+class Resource(BaseModel):
+    """Resource model for DynamoDB"""
+    resource_id: str
     title: str
     description: str
     type: str
-    user: Link["User"]
-    tags: list[Link["Tag"]] = Field(default_factory=list)
+    user_id: str
+    tag_ids: list[str] = Field(default_factory=list)
     url: Optional[str] = None
     code: Optional[str] = None
     author: Optional[str] = None
-    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    created_at: Optional[datetime] = None
     
-    class Settings:
-        name = "resources"
-        indexes = ["type"]
+    @classmethod
+    def from_dynamodb_item(cls, item: dict) -> "Resource":
+        """Create Resource from DynamoDB item."""
+        created_at = None
+        if 'created_at' in item:
+            try:
+                created_at = datetime.fromisoformat(item['created_at'].replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                pass
+        
+        return cls(
+            resource_id=item.get('resource_id', ''),
+            title=item.get('title', ''),
+            description=item.get('description', ''),
+            type=item.get('type', ''),
+            user_id=item.get('user_id', ''),
+            tag_ids=item.get('tag_ids', []),
+            url=item.get('url'),
+            code=item.get('code'),
+            author=item.get('author'),
+            created_at=created_at
+        )
+    
+    def to_dynamodb_item(self) -> dict:
+        """Convert Resource to DynamoDB item."""
+        item = {
+            'resource_id': self.resource_id,
+            'title': self.title,
+            'description': self.description,
+            'type': self.type,
+            'user_id': self.user_id,
+            'tag_ids': self.tag_ids,
+        }
+        if self.url is not None:
+            item['url'] = self.url
+        if self.code is not None:
+            item['code'] = self.code
+        if self.author is not None:
+            item['author'] = self.author
+        if self.created_at:
+            item['created_at'] = self.created_at.isoformat()
+        return item
+    
+    @property
+    def id(self) -> str:
+        """Alias for resource_id for compatibility."""
+        return self.resource_id
 
 class ResourceCollection(BaseModel):
     resources: list[ResourceModel]

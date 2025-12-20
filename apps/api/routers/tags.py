@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, status, Depends
 from models.tag import TagModel, Tag, TagCollection
 from models.user import User
 from utils.auth import get_current_user
+from services import dynamodb
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -11,12 +12,12 @@ async def create_tag(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new tag (requires authentication)"""
-    new_tag = Tag(name=tag.name)
-    await new_tag.insert()
-    return TagModel(id=str(new_tag.id), name=new_tag.name)
+    tag_data = {'name': tag.name}
+    tag_item = await dynamodb.create_tag(tag_data)
+    return TagModel(id=tag_item['tag_id'], name=tag_item['name'])
 
 @router.get("", response_model=TagCollection)
 async def list_tags():
     """List all tags (public endpoint)"""
-    tags = await Tag.find_all().to_list()
-    return TagCollection(tags=[TagModel(id=str(tag.id), name=tag.name) for tag in tags])
+    tag_items = await dynamodb.list_tags()
+    return TagCollection(tags=[TagModel(id=item['tag_id'], name=item['name']) for item in tag_items])

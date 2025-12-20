@@ -1,26 +1,18 @@
-from contextlib import asynccontextmanager
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import connect_to_mongo, close_mongo_connection
+from mangum import Mangum
 from routers import tags, resources, users
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-	await connect_to_mongo()
-	yield
-	await close_mongo_connection()
+app = FastAPI()
 
-app = FastAPI(lifespan=lifespan)
+# Configure CORS from environment variable
+cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173,http://127.0.0.1:4173")
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
 
-# Configure CORS
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=[
-		"http://localhost:5173",
-		"http://localhost:4173",
-		"http://127.0.0.1:5173",
-		"http://127.0.0.1:4173",
-	],  # Add your frontend URLs
+	allow_origins=cors_origins,
 	allow_credentials=True,
 	allow_methods=["*"],
 	allow_headers=["*"],
@@ -30,3 +22,6 @@ app.add_middleware(
 app.include_router(tags.router)
 app.include_router(resources.router)
 app.include_router(users.router)
+
+# Lambda handler
+handler = Mangum(app, lifespan="off")

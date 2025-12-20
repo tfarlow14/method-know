@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Body, status, Depends
-from models.resource import ResourceModel, ResourceModelInput, Resource, ResourceCollection
+from datetime import datetime
+from models.resource import ResourceModel, ResourceModelInput, ResourceCollection
 from models.user import User
-from models.tag import Tag
 from utils.auth import get_current_user
+from services import dynamodb
 import asyncio
 
 router = APIRouter(prefix="/resources", tags=["resources"])
@@ -14,36 +15,40 @@ async def create_resource(
 ):
     resource_dict = resource.model_dump(exclude=["tag_ids"])
     
-    tag_links = []
+    # Validate tags exist
     if resource.tag_ids:
-        tags = await asyncio.gather(*[Tag.get(tag_id) for tag_id in resource.tag_ids])
-        for i, tag in enumerate(tags):
-            if not tag:
-                raise HTTPException(status_code=400, detail=f"Tag {resource.tag_ids[i]} does not exist")
-        tag_links = tags
+        tag_items = await dynamodb.get_tags_by_ids(resource.tag_ids)
+        if len(tag_items) != len(resource.tag_ids):
+            found_ids = {tag['tag_id'] for tag in tag_items}
+            missing_ids = [tid for tid in resource.tag_ids if tid not in found_ids]
+            raise HTTPException(status_code=400, detail=f"Tags {missing_ids} do not exist")
     
-    new_resource = Resource(
-        title=resource_dict["title"],
-        description=resource_dict["description"],
-        type=resource_dict["type"],
-        user=current_user,
-        tags=tag_links,
-        url=resource_dict.get("url"),
-        code=resource_dict.get("code"),
-        author=resource_dict.get("author")
-    )
-    await new_resource.insert()
-    await new_resource.fetch_all_links()
+    # Create resource data
+    resource_data = {
+        'title': resource_dict['title'],
+        'description': resource_dict['description'],
+        'type': resource_dict['type'],
+        'user_id': current_user.user_id,
+        'tag_ids': resource.tag_ids,
+    }
     
-    return await _resource_doc_to_model(new_resource)
+    # Add optional fields based on type
+    if 'url' in resource_dict:
+        resource_data['url'] = resource_dict['url']
+    if 'code' in resource_dict:
+        resource_data['code'] = resource_dict['code']
+    if 'author' in resource_dict:
+        resource_data['author'] = resource_dict['author']
+    
+    resource_item = await dynamodb.create_resource(resource_data)
+    return await _resource_item_to_model(resource_item)
 
 @router.get("", response_model=ResourceCollection)
 async def list_resources(
     _current_user: User = Depends(get_current_user)
 ):
-    resources = await Resource.find_all().to_list()
-    await asyncio.gather(*[resource.fetch_all_links() for resource in resources])
-    processed_resources = await asyncio.gather(*[_resource_doc_to_model(resource) for resource in resources])
+    resource_items = await dynamodb.list_resources()
+    processed_resources = await asyncio.gather(*[_resource_item_to_model(item) for item in resource_items])
     return ResourceCollection(resources=processed_resources)
 
 @router.get("/user/{user_id}", response_model=ResourceCollection)
@@ -51,13 +56,12 @@ async def get_resources_by_user(
     user_id: str,
     _current_user: User = Depends(get_current_user)
 ):
-    user = await User.get(user_id)
-    if not user:
+    user_item = await dynamodb.get_user_by_id(user_id)
+    if not user_item:
         raise HTTPException(status_code=404, detail="User not found")
     
-    resources = await Resource.find(Resource.user == user).to_list()
-    await asyncio.gather(*[resource.fetch_all_links() for resource in resources])
-    processed_resources = await asyncio.gather(*[_resource_doc_to_model(resource) for resource in resources])
+    resource_items = await dynamodb.get_resources_by_user_id(user_id)
+    processed_resources = await asyncio.gather(*[_resource_item_to_model(item) for item in resource_items])
     return ResourceCollection(resources=processed_resources)
 
 @router.put("/{resource_id}", response_model=ResourceModel)
@@ -66,96 +70,114 @@ async def update_resource(
     resource: ResourceModelInput = Body(...),
     current_user: User = Depends(get_current_user)
 ):
-    existing_resource = await Resource.get(resource_id)
-    if not existing_resource:
+    existing_resource_item = await dynamodb.get_resource_by_id(resource_id)
+    if not existing_resource_item:
         raise HTTPException(status_code=404, detail="Resource not found")
     
-    # Fetch the user link to ensure it's loaded
-    await existing_resource.fetch_all_links()
-    
     # Check if user owns the resource
-    if str(existing_resource.user.id) != str(current_user.id):
+    if existing_resource_item['user_id'] != current_user.user_id:
         raise HTTPException(status_code=403, detail="You can only update your own resources")
     
     resource_dict = resource.model_dump(exclude=["tag_ids"])
     
-    # Update tags
-    tag_links = []
+    # Validate tags exist
     if resource.tag_ids:
-        tags = await asyncio.gather(*[Tag.get(tag_id) for tag_id in resource.tag_ids])
-        for i, tag in enumerate(tags):
-            if not tag:
-                raise HTTPException(status_code=400, detail=f"Tag {resource.tag_ids[i]} does not exist")
-        tag_links = tags
+        tag_items = await dynamodb.get_tags_by_ids(resource.tag_ids)
+        if len(tag_items) != len(resource.tag_ids):
+            found_ids = {tag['tag_id'] for tag in tag_items}
+            missing_ids = [tid for tid in resource.tag_ids if tid not in found_ids]
+            raise HTTPException(status_code=400, detail=f"Tags {missing_ids} do not exist")
     
     # Update resource fields
-    existing_resource.title = resource_dict["title"]
-    existing_resource.description = resource_dict["description"]
-    existing_resource.type = resource_dict["type"]
-    existing_resource.tags = tag_links
-    existing_resource.url = resource_dict.get("url")
-    existing_resource.code = resource_dict.get("code")
-    existing_resource.author = resource_dict.get("author")
+    update_data = {
+        'title': resource_dict['title'],
+        'description': resource_dict['description'],
+        'type': resource_dict['type'],
+        'tag_ids': resource.tag_ids,
+    }
     
-    await existing_resource.save()
-    await existing_resource.fetch_all_links()
+    # Add optional fields
+    if 'url' in resource_dict:
+        update_data['url'] = resource_dict['url']
+    if 'code' in resource_dict:
+        update_data['code'] = resource_dict['code']
+    if 'author' in resource_dict:
+        update_data['author'] = resource_dict['author']
     
-    return await _resource_doc_to_model(existing_resource)
+    updated_resource_item = await dynamodb.update_resource(resource_id, update_data)
+    return await _resource_item_to_model(updated_resource_item)
 
 @router.delete("/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_resource(
     resource_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    existing_resource = await Resource.get(resource_id)
-    if not existing_resource:
+    existing_resource_item = await dynamodb.get_resource_by_id(resource_id)
+    if not existing_resource_item:
         raise HTTPException(status_code=404, detail="Resource not found")
     
-    # Fetch the user link to ensure it's loaded
-    await existing_resource.fetch_all_links()
-    
     # Check if user owns the resource
-    if str(existing_resource.user.id) != str(current_user.id):
+    if existing_resource_item['user_id'] != current_user.user_id:
         raise HTTPException(status_code=403, detail="You can only delete your own resources")
     
-    await existing_resource.delete()
+    await dynamodb.delete_resource(resource_id)
     return None
 
-async def _resource_doc_to_model(resource: Resource) -> ResourceModel:
+async def _resource_item_to_model(resource_item: dict) -> ResourceModel:
+    """Convert DynamoDB resource item to ResourceModel with denormalized user and tags."""
     from models.resource import (
         ArticleResource, CodeSnippetResource, BookResource, CourseResource
     )
     from models.user import UserResponse
     from models.tag import TagModel
     
+    # Fetch user
+    user_item = await dynamodb.get_user_by_id(resource_item['user_id'])
+    if not user_item:
+        raise HTTPException(status_code=404, detail="User not found for resource")
+    
     user_response = UserResponse(
-        id=str(resource.user.id),
-        first_name=resource.user.first_name,
-        last_name=resource.user.last_name,
-        email=resource.user.email
+        id=user_item['user_id'],
+        first_name=user_item['first_name'],
+        last_name=user_item['last_name'],
+        email=user_item['email']
     )
     
+    # Fetch tags
+    tag_items = []
+    if resource_item.get('tag_ids'):
+        tag_items = await dynamodb.get_tags_by_ids(resource_item['tag_ids'])
+    
     tags = [
-        TagModel(id=str(tag.id), name=tag.name)
-        for tag in resource.tags
+        TagModel(id=tag['tag_id'], name=tag['name'])
+        for tag in tag_items
     ]
     
+    # Parse created_at
+    created_at = None
+    if 'created_at' in resource_item:
+        try:
+            created_at = datetime.fromisoformat(resource_item['created_at'].replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            pass
+    
     base_data = {
-        "id": str(resource.id),
-        "title": resource.title,
-        "description": resource.description,
+        "id": resource_item['resource_id'],
+        "title": resource_item['title'],
+        "description": resource_item['description'],
         "user": user_response,
         "tags": tags,
-        "created_at": resource.created_at
+        "created_at": created_at
     }
     
-    if resource.type == "article":
-        return ArticleResource(**base_data, url=resource.url or "")
-    elif resource.type == "code_snippet":
-        return CodeSnippetResource(**base_data, code=resource.code or "")
-    elif resource.type == "book":
-        return BookResource(**base_data, author=resource.author)
-    elif resource.type == "course":
-        return CourseResource(**base_data, author=resource.author)
+    resource_type = resource_item['type']
+    if resource_type == "article":
+        return ArticleResource(**base_data, url=resource_item.get('url', ''))
+    elif resource_type == "code_snippet":
+        return CodeSnippetResource(**base_data, code=resource_item.get('code', ''))
+    elif resource_type == "book":
+        return BookResource(**base_data, author=resource_item.get('author'))
+    elif resource_type == "course":
+        return CourseResource(**base_data, author=resource_item.get('author'))
     else:
-        raise ValueError(f"Unknown resource type: {resource.type}")
+        raise ValueError(f"Unknown resource type: {resource_type}")

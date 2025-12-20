@@ -1,7 +1,7 @@
 fastapi
 uvicorn
-motor
-beanie==1.30.0
+mangum
+boto3
 email-validator
 passlib[bcrypt]
 PyJWT

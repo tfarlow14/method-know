@@ -86,6 +86,8 @@ async def get_current_user(
         async def protected_route(current_user: User = Depends(get_current_user)):
             return {"user_id": str(current_user.id)}
     """
+    from services import dynamodb
+    
     token = credentials.credentials
     try:
         payload = verify_token(token)
@@ -96,14 +98,14 @@ async def get_current_user(
                 detail="Invalid token payload: missing user ID"
             )
         
-        user = await User.get(user_id)
-        if not user:
+        user_item = await dynamodb.get_user_by_id(user_id)
+        if not user_item:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"User not found for ID: {user_id}"
             )
         
-        return user
+        return User.from_dynamodb_item(user_item)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
