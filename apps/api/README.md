@@ -28,9 +28,7 @@ pip install -r requirements.txt
 
 2. Set environment variables:
 ```bash
-export USERS_TABLE_NAME=knowledge-hub-api-users
-export TAGS_TABLE_NAME=knowledge-hub-api-tags
-export RESOURCES_TABLE_NAME=knowledge-hub-api-resources
+export TABLE_PREFIX=knowledge-hub-api
 export CORS_ORIGINS=http://localhost:5173,http://localhost:4173
 export JWT_SECRET_KEY=your-secret-key-here
 ```
@@ -101,13 +99,12 @@ Edit `samconfig.toml` to customize:
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `USERS_TABLE_NAME` | DynamoDB users table name | Yes |
-| `TAGS_TABLE_NAME` | DynamoDB tags table name | Yes |
-| `RESOURCES_TABLE_NAME` | DynamoDB resources table name | Yes |
-| `CORS_ORIGINS` | Comma-separated list of allowed origins | Yes |
-| `JWT_SECRET_KEY` | Secret key for JWT token signing | Yes |
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `TABLE_PREFIX` | Prefix for table names (e.g., "knowledge-hub-api" creates "knowledge-hub-api-users") | Yes | - |
+| `CORS_ORIGINS` | Comma-separated list of allowed origins | Yes | - |
+| `JWT_SECRET_KEY` | Secret key for JWT token signing | Yes | - |
+| `AWS_ENDPOINT_URL` | DynamoDB endpoint (for local development) | No | - |
 
 ## DynamoDB Tables
 

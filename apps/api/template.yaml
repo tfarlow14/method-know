@@ -76,14 +76,12 @@ Resources:
       FunctionName: !Sub "${AWS::StackName}-api"
       CodeUri: .
       Handler: main.handler
-      Runtime: python3.11
+      Runtime: python3.12
       Timeout: 30
       MemorySize: 512
       Environment:
         Variables:
-          USERS_TABLE_NAME: !Ref UsersTable
-          TAGS_TABLE_NAME: !Ref TagsTable
-          RESOURCES_TABLE_NAME: !Ref ResourcesTable
+          TABLE_PREFIX: !Ref AWS::StackName
           CORS_ORIGINS: !Ref CORSOrigins
           JWT_SECRET_KEY: !Ref JWTSecretKey
       Policies:

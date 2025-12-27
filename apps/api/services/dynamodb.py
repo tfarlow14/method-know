@@ -5,25 +5,91 @@ from typing import Optional, List, Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 
-# Initialize DynamoDB client (reused across Lambda invocations)
-# Support local DynamoDB for development via AWS_ENDPOINT_URL environment variable
-endpoint_url = os.getenv('AWS_ENDPOINT_URL')
-if endpoint_url:
-    dynamodb = boto3.resource('dynamodb', endpoint_url=endpoint_url)
-    dynamodb_client = boto3.client('dynamodb', endpoint_url=endpoint_url)
-else:
-    dynamodb = boto3.resource('dynamodb')
-    dynamodb_client = boto3.client('dynamodb')
+# Detect environment
+IS_LAMBDA = os.getenv('AWS_LAMBDA_FUNCTION_NAME') is not None
 
-# Table names from environment variables
-USERS_TABLE_NAME = os.getenv('USERS_TABLE_NAME', 'users')
-TAGS_TABLE_NAME = os.getenv('TAGS_TABLE_NAME', 'tags')
-RESOURCES_TABLE_NAME = os.getenv('RESOURCES_TABLE_NAME', 'resources')
+# Lazy initialization
+_dynamodb_resource = None
+_dynamodb_client = None
 
-# Get table resources
-users_table = dynamodb.Table(USERS_TABLE_NAME)
-tags_table = dynamodb.Table(TAGS_TABLE_NAME)
-resources_table = dynamodb.Table(RESOURCES_TABLE_NAME)
+def get_dynamodb_resource():
+    """Get DynamoDB resource - works in Lambda and local dev."""
+    global _dynamodb_resource
+    if _dynamodb_resource is None:
+        endpoint_url = os.getenv('AWS_ENDPOINT_URL')
+        region_name = os.getenv('AWS_REGION') or os.getenv('AWS_DEFAULT_REGION')
+        
+        if IS_LAMBDA:
+            # Lambda: IAM role provides credentials automatically, region from environment
+            _dynamodb_resource = boto3.resource(
+                'dynamodb',
+                endpoint_url=endpoint_url,
+                region_name=region_name
+            ) if endpoint_url or region_name else boto3.resource('dynamodb')
+        else:
+            # Local: Use AWS profile from environment variable (AWS Toolkit/SSO)
+            profile = os.getenv('AWS_PROFILE')
+            if profile:
+                session = boto3.Session(profile_name=profile, region_name=region_name)
+                _dynamodb_resource = session.resource('dynamodb', endpoint_url=endpoint_url) if endpoint_url else session.resource('dynamodb')
+            else:
+                # No profile specified - use default boto3 credential chain
+                _dynamodb_resource = boto3.resource(
+                    'dynamodb',
+                    endpoint_url=endpoint_url,
+                    region_name=region_name
+                ) if endpoint_url or region_name else boto3.resource('dynamodb')
+    
+    return _dynamodb_resource
+
+def get_dynamodb_client():
+    """Get DynamoDB client - works in Lambda and local dev."""
+    global _dynamodb_client
+    if _dynamodb_client is None:
+        endpoint_url = os.getenv('AWS_ENDPOINT_URL')
+        region_name = os.getenv('AWS_REGION') or os.getenv('AWS_DEFAULT_REGION')
+        
+        if IS_LAMBDA:
+            _dynamodb_client = boto3.client(
+                'dynamodb',
+                endpoint_url=endpoint_url,
+                region_name=region_name
+            ) if endpoint_url or region_name else boto3.client('dynamodb')
+        else:
+            # Local: Use AWS profile from environment variable (AWS Toolkit/SSO)
+            profile = os.getenv('AWS_PROFILE')
+            if profile:
+                session = boto3.Session(profile_name=profile, region_name=region_name)
+                _dynamodb_client = session.client('dynamodb', endpoint_url=endpoint_url) if endpoint_url else session.client('dynamodb')
+            else:
+                # No profile specified - use default boto3 credential chain
+                _dynamodb_client = boto3.client(
+                    'dynamodb',
+                    endpoint_url=endpoint_url,
+                    region_name=region_name
+                ) if endpoint_url or region_name else boto3.client('dynamodb')
+    
+    return _dynamodb_client
+
+# Table names - use TABLE_PREFIX to construct table names
+TABLE_PREFIX = os.getenv('TABLE_PREFIX')
+if not TABLE_PREFIX:
+    raise ValueError("TABLE_PREFIX environment variable is required")
+
+# Construct table names from prefix (e.g., "knowledge-hub-api" -> "knowledge-hub-api-users")
+USERS_TABLE_NAME = f"{TABLE_PREFIX}-users"
+TAGS_TABLE_NAME = f"{TABLE_PREFIX}-tags"
+RESOURCES_TABLE_NAME = f"{TABLE_PREFIX}-resources"
+
+# Helper functions to get tables
+def get_users_table():
+    return get_dynamodb_resource().Table(USERS_TABLE_NAME)
+
+def get_tags_table():
+    return get_dynamodb_resource().Table(TAGS_TABLE_NAME)
+
+def get_resources_table():
+    return get_dynamodb_resource().Table(RESOURCES_TABLE_NAME)
 
 
 # Helper functions for DynamoDB item conversion
@@ -54,10 +120,16 @@ def deserialize_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Convert DynamoDB item to Python dict."""
     result = {}
     for key, value in item.items():
-        if isinstance(value, str) and key.endswith('_at') or key == 'created_at':
+        # Parse datetime fields (created_at, updated_at, etc.)
+        if isinstance(value, str) and (key.endswith('_at') or key == 'created_at'):
             try:
-                result[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            except:
+                # Handle ISO format strings with or without timezone
+                if value.endswith('Z'):
+                    result[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                else:
+                    result[key] = datetime.fromisoformat(value)
+            except (ValueError, AttributeError, TypeError):
+                # If parsing fails, keep as string
                 result[key] = value
         else:
             result[key] = value
@@ -78,7 +150,7 @@ async def create_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
     item = serialize_dynamodb_item(item)
     
     try:
-        users_table.put_item(Item=item)
+        get_users_table().put_item(Item=item)
         return item
     except ClientError as e:
         raise Exception(f"Error creating user: {str(e)}")
@@ -87,7 +159,7 @@ async def create_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
 async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Get a user by user_id."""
     try:
-        response = users_table.get_item(Key={'user_id': user_id})
+        response = get_users_table().get_item(Key={'user_id': user_id})
         if 'Item' in response:
             return deserialize_dynamodb_item(response['Item'])
         return None
@@ -98,7 +170,7 @@ async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
 async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     """Get a user by email using GSI."""
     try:
-        response = users_table.query(
+        response = get_users_table().query(
             IndexName='email-index',
             KeyConditionExpression='email = :email',
             ExpressionAttributeValues={':email': email}
@@ -128,7 +200,7 @@ async def update_user(user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]
     update_expression = "SET " + ", ".join(update_expression_parts)
     
     try:
-        response = users_table.update_item(
+        response = get_users_table().update_item(
             Key={'user_id': user_id},
             UpdateExpression=update_expression,
             ExpressionAttributeNames=expression_attribute_names,
@@ -143,7 +215,7 @@ async def update_user(user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]
 async def delete_user(user_id: str) -> None:
     """Delete a user from DynamoDB."""
     try:
-        users_table.delete_item(Key={'user_id': user_id})
+        get_users_table().delete_item(Key={'user_id': user_id})
     except ClientError as e:
         raise Exception(f"Error deleting user: {str(e)}")
 
@@ -151,7 +223,7 @@ async def delete_user(user_id: str) -> None:
 async def list_users() -> List[Dict[str, Any]]:
     """List all users."""
     try:
-        response = users_table.scan()
+        response = get_users_table().scan()
         return [deserialize_dynamodb_item(item) for item in response['Items']]
     except ClientError as e:
         raise Exception(f"Error listing users: {str(e)}")
@@ -168,7 +240,7 @@ async def create_tag(tag_data: Dict[str, Any]) -> Dict[str, Any]:
     item = serialize_dynamodb_item(item)
     
     try:
-        tags_table.put_item(Item=item)
+        get_tags_table().put_item(Item=item)
         return item
     except ClientError as e:
         raise Exception(f"Error creating tag: {str(e)}")
@@ -177,7 +249,7 @@ async def create_tag(tag_data: Dict[str, Any]) -> Dict[str, Any]:
 async def get_tag_by_id(tag_id: str) -> Optional[Dict[str, Any]]:
     """Get a tag by tag_id."""
     try:
-        response = tags_table.get_item(Key={'tag_id': tag_id})
+        response = get_tags_table().get_item(Key={'tag_id': tag_id})
         if 'Item' in response:
             return deserialize_dynamodb_item(response['Item'])
         return None
@@ -188,7 +260,7 @@ async def get_tag_by_id(tag_id: str) -> Optional[Dict[str, Any]]:
 async def list_tags() -> List[Dict[str, Any]]:
     """List all tags."""
     try:
-        response = tags_table.scan()
+        response = get_tags_table().scan()
         return [deserialize_dynamodb_item(item) for item in response['Items']]
     except ClientError as e:
         raise Exception(f"Error listing tags: {str(e)}")
@@ -200,15 +272,17 @@ async def get_tags_by_ids(tag_ids: List[str]) -> List[Dict[str, Any]]:
         return []
     
     try:
-        # Use batch_get_item for efficiency
-        response = dynamodb_client.batch_get_item(
-            RequestItems={
-                TAGS_TABLE_NAME: {
-                    'Keys': [{'tag_id': tag_id} for tag_id in tag_ids]
-                }
-            }
-        )
-        items = response.get('Responses', {}).get(TAGS_TABLE_NAME, [])
+        # Use individual get_item calls for simplicity
+        # For small batches, this is fine. For larger batches, consider using
+        # the low-level client with proper DynamoDB format conversion
+        table = get_tags_table()
+        items = []
+        
+        for tag_id in tag_ids:
+            response = table.get_item(Key={'tag_id': tag_id})
+            if 'Item' in response:
+                items.append(response['Item'])
+        
         return [deserialize_dynamodb_item(item) for item in items]
     except ClientError as e:
         raise Exception(f"Error getting tags by IDs: {str(e)}")
@@ -239,7 +313,7 @@ async def create_resource(resource_data: Dict[str, Any]) -> Dict[str, Any]:
     item = serialize_dynamodb_item(item)
     
     try:
-        resources_table.put_item(Item=item)
+        get_resources_table().put_item(Item=item)
         return item
     except ClientError as e:
         raise Exception(f"Error creating resource: {str(e)}")
@@ -248,7 +322,7 @@ async def create_resource(resource_data: Dict[str, Any]) -> Dict[str, Any]:
 async def get_resource_by_id(resource_id: str) -> Optional[Dict[str, Any]]:
     """Get a resource by resource_id."""
     try:
-        response = resources_table.get_item(Key={'resource_id': resource_id})
+        response = get_resources_table().get_item(Key={'resource_id': resource_id})
         if 'Item' in response:
             return deserialize_dynamodb_item(response['Item'])
         return None
@@ -277,7 +351,7 @@ async def update_resource(resource_id: str, resource_data: Dict[str, Any]) -> Di
     update_expression = "SET " + ", ".join(update_expression_parts)
     
     try:
-        response = resources_table.update_item(
+        response = get_resources_table().update_item(
             Key={'resource_id': resource_id},
             UpdateExpression=update_expression,
             ExpressionAttributeNames=expression_attribute_names,
@@ -292,7 +366,7 @@ async def update_resource(resource_id: str, resource_data: Dict[str, Any]) -> Di
 async def delete_resource(resource_id: str) -> None:
     """Delete a resource from DynamoDB."""
     try:
-        resources_table.delete_item(Key={'resource_id': resource_id})
+        get_resources_table().delete_item(Key={'resource_id': resource_id})
     except ClientError as e:
         raise Exception(f"Error deleting resource: {str(e)}")
 
@@ -300,7 +374,7 @@ async def delete_resource(resource_id: str) -> None:
 async def list_resources() -> List[Dict[str, Any]]:
     """List all resources."""
     try:
-        response = resources_table.scan()
+        response = get_resources_table().scan()
         return [deserialize_dynamodb_item(item) for item in response['Items']]
     except ClientError as e:
         raise Exception(f"Error listing resources: {str(e)}")
@@ -309,7 +383,7 @@ async def list_resources() -> List[Dict[str, Any]]:
 async def get_resources_by_user_id(user_id: str) -> List[Dict[str, Any]]:
     """Get all resources for a specific user using GSI."""
     try:
-        response = resources_table.query(
+        response = get_resources_table().query(
             IndexName='user_id-index',
             KeyConditionExpression='user_id = :user_id',
             ExpressionAttributeValues={':user_id': user_id}

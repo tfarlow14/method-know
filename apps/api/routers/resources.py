@@ -153,13 +153,18 @@ async def _resource_item_to_model(resource_item: dict) -> ResourceModel:
         for tag in tag_items
     ]
     
-    # Parse created_at
-    created_at = None
-    if 'created_at' in resource_item:
+    # Parse created_at - it should already be a datetime from deserialize_dynamodb_item
+    # but handle both cases for safety
+    created_at = resource_item.get('created_at')
+    if created_at and isinstance(created_at, str):
         try:
-            created_at = datetime.fromisoformat(resource_item['created_at'].replace('Z', '+00:00'))
-        except (ValueError, AttributeError):
-            pass
+            # Handle ISO format strings
+            if created_at.endswith('Z'):
+                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            else:
+                created_at = datetime.fromisoformat(created_at)
+        except (ValueError, AttributeError, TypeError):
+            created_at = None
     
     base_data = {
         "id": resource_item['resource_id'],

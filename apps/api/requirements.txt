@@ -2,6 +2,7 @@ fastapi
 uvicorn
 mangum
 boto3
+botocore[crt]
 email-validator
 passlib[bcrypt]
 PyJWT
